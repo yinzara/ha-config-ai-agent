@@ -4,7 +4,7 @@
 
 **AI Configuration Agent** is a Home Assistant add-on that provides an AI-powered assistant for managing Home Assistant configuration files through natural language. It uses OpenAI-compatible models to understand user requests, read configurations, propose changes, and apply them after user approval.
 
-**Current Version:** 0.1.0
+**Current Version:** 0.1.1
 
 ## Repository Information
 - **GitHub:** https://github.com/yinzara/ha-config-ai-agent

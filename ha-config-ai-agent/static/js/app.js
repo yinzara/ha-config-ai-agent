@@ -64,7 +64,7 @@ async function checkConfig() {
     }
 }
 
-// Send message to agent
+// Send message to agent using SSE
 async function sendMessage() {
     const message = messageInput.value.trim();
     if (!message) return;
@@ -74,23 +74,33 @@ async function sendMessage() {
     // Add user message to chat
     addUserMessage(message);
 
+    // Add user message to conversation history
+    conversationHistory.push({
+        role: 'user',
+        content: message
+    });
+
     // Clear input
     messageInput.value = '';
     messageInput.style.height = 'auto';
 
     // Disable send button and show loading indicator
     sendBtn.disabled = true;
-    const loadingIndicator = addLoadingIndicator();
+    let currentAssistantMessage = null;
+    let currentMessageContent = '';
+    let loadingIndicator = addLoadingIndicator();
 
     try {
+        // Use fetch with streaming instead of EventSource for POST support
         const response = await fetch('api/chat', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'text/event-stream'
             },
             body: JSON.stringify({
                 message: message,
-                conversation_history: conversationHistory
+                conversation_history: conversationHistory.slice(0, -1) // Exclude the message we just added
             })
         });
 
@@ -98,29 +108,153 @@ async function sendMessage() {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const data = await response.json();
-        console.log('Received response:', data);
+        // Parse SSE stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let currentEvent = null;
 
-        // Remove loading indicator
-        removeLoadingIndicator(loadingIndicator);
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-        // Append new messages to history and process them first
-        if (data.messages && Array.isArray(data.messages)) {
-            conversationHistory.push(...data.messages);
-            processMessages(data.messages);
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+
+            // Keep the last incomplete line in the buffer
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+
+                if (line.startsWith('event:')) {
+                    currentEvent = line.substring(6).trim();
+                    continue;
+                }
+
+                if (line.startsWith('data:')) {
+                    const dataStr = line.substring(5).trim();
+                    if (!dataStr) continue;
+
+                    try {
+                        const data = JSON.parse(dataStr);
+
+                        // Handle different event types based on currentEvent from event: line
+                        if (currentEvent === 'token') {
+                            // Remove loading indicator on first token
+                            if (loadingIndicator && loadingIndicator.parentNode) {
+                                removeLoadingIndicator(loadingIndicator);
+                                loadingIndicator = null;
+                            }
+
+                            // Accumulate content
+                            currentMessageContent += data.content;
+
+                            // Update or create assistant message element
+                            if (!currentAssistantMessage) {
+                                currentAssistantMessage = addAssistantMessageStreaming('');
+                            }
+                            updateAssistantMessageStreaming(currentAssistantMessage, currentMessageContent);
+
+                        } else if (currentEvent === 'message_complete') {
+                            // Add message to conversation history
+                            conversationHistory.push(data.message);
+
+                            // Finalize the assistant message display
+                            if (currentAssistantMessage) {
+                                finalizeAssistantMessageStreaming(currentAssistantMessage);
+                            }
+                            currentMessageContent = '';
+                            currentAssistantMessage = null;
+
+                        } else if (currentEvent === 'tool_call') {
+                            // Finalize current message if any
+                            if (currentAssistantMessage) {
+                                finalizeAssistantMessageStreaming(currentAssistantMessage);
+                                currentAssistantMessage = null;
+                            }
+
+                            // Add assistant message with tool calls to history
+                            conversationHistory.push({
+                                role: 'assistant',
+                                content: currentMessageContent,
+                                tool_calls: data.tool_calls
+                            });
+                            currentMessageContent = '';
+
+                            // Show tool execution indicator
+                            addSystemMessage(`🔧 Executing tools: ${data.tool_calls.map(tc => tc.function.name).join(', ')}`);
+
+                            // Re-add loading indicator while tools execute and AI processes next response
+                            if (!loadingIndicator) {
+                                loadingIndicator = addLoadingIndicator();
+                            }
+
+                        } else if (currentEvent === 'tool_result') {
+                            // Add tool result to history
+                            conversationHistory.push({
+                                role: 'tool',
+                                tool_call_id: data.tool_call_id,
+                                content: JSON.stringify(data.result)
+                            });
+
+                            // Display tool result visually
+                            addToolResultMessage(data.function, data.result);
+
+                            // Process tool results (especially for propose_config_changes)
+                            if (data.function === 'propose_config_changes' && data.result.success) {
+                                // Extract changeset info and display approval card
+                                const changesetData = {
+                                    changeset_id: data.result.changeset_id,
+                                    total_files: data.result.total_files,
+                                    files: data.result.files,
+                                    reason: data.result.reason
+                                };
+
+                                // Find the tool call to get the original arguments
+                                const assistantMsg = conversationHistory
+                                    .slice()
+                                    .reverse()
+                                    .find(m => m.role === 'assistant' && m.tool_calls);
+
+                                if (assistantMsg) {
+                                    const toolCall = assistantMsg.tool_calls.find(tc => tc.id === data.tool_call_id);
+                                    if (toolCall) {
+                                        const args = JSON.parse(toolCall.function.arguments);
+                                        changesetData.file_changes_detail = args.changes;
+                                        changesetData.original_contents = extractOriginalContents(conversationHistory, args.changes);
+                                    }
+                                }
+
+                                addApprovalCard(changesetData);
+                            }
+
+                        } else if (currentEvent === 'complete') {
+                            console.log('Stream complete:', data);
+
+                        } else if (currentEvent === 'error') {
+                            addSystemMessage(`❌ Error: ${data.error}`);
+                        }
+
+                        currentEvent = null;
+                    } catch (e) {
+                        console.error('Error parsing SSE data:', e, dataStr);
+                    }
+                }
+            }
         }
 
-        // Display the response text if present (this is the final AI response)
-        // This comes after processMessages to maintain chronological order
-        if (data.response) {
-            addAssistantMessage(data.response);
+        // Final cleanup
+        if (loadingIndicator && loadingIndicator.parentNode) {
+            removeLoadingIndicator(loadingIndicator);
         }
+        sendBtn.disabled = false;
+        messageInput.focus();
 
     } catch (error) {
         console.error('Send message error:', error);
         removeLoadingIndicator(loadingIndicator);
         addSystemMessage(`❌ Error: ${error.message}`);
-    } finally {
         sendBtn.disabled = false;
         messageInput.focus();
     }
@@ -232,6 +366,35 @@ function addAssistantMessage(content) {
     scrollToBottom();
 }
 
+// Add streaming assistant message (creates element)
+function addAssistantMessageStreaming(content) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant-message streaming';
+    messageDiv.textContent = content;
+    chatMessages.appendChild(messageDiv);
+    scrollToBottom();
+    return messageDiv;
+}
+
+// Update streaming assistant message
+function updateAssistantMessageStreaming(messageDiv, content) {
+    // For streaming, show plain text first
+    messageDiv.textContent = content;
+    scrollToBottom();
+}
+
+// Finalize streaming assistant message (apply markdown)
+function finalizeAssistantMessageStreaming(messageDiv) {
+    const content = messageDiv.textContent;
+    messageDiv.classList.remove('streaming');
+
+    // Apply markdown rendering
+    if (typeof marked !== 'undefined') {
+        messageDiv.innerHTML = marked.parse(content);
+    }
+    scrollToBottom();
+}
+
 // Add system message to chat
 function addSystemMessage(content) {
     const messageDiv = document.createElement('div');
@@ -240,6 +403,62 @@ function addSystemMessage(content) {
     chatMessages.appendChild(messageDiv);
     scrollToBottom();
 }
+
+// Add tool result message with expandable details
+function addToolResultMessage(functionName, result) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message tool-result-message';
+
+    // Generate summary based on function and result
+    let summary = '';
+    let icon = '';
+
+    if (result.success === false) {
+        icon = '❌';
+        summary = `Error in ${functionName}: ${result.error || 'Unknown error'}`;
+    } else if (functionName === 'search_config_files') {
+        icon = '🔍';
+        const fileCount = result.count || result.files?.length || 0;
+        summary = `Found ${fileCount} file(s)`;
+    } else if (functionName === 'propose_config_changes') {
+        icon = '📝';
+        summary = `Proposed changes to ${result.total_files || 0} file(s)`;
+    } else {
+        icon = '✓';
+        summary = `${functionName} completed`;
+    }
+
+    const resultId = 'result-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+
+    let html = '<div class="tool-result-content">';
+    html += `<div class="tool-result-header">`;
+    html += `<span class="tool-result-icon">${icon}</span>`;
+    html += `<span class="tool-result-summary">${escapeHtml(summary)}</span>`;
+    html += `<button class="tool-result-toggle" onclick="toggleToolResult('${resultId}')">▼ Details</button>`;
+    html += `</div>`;
+    html += `<div class="tool-result-details" id="${resultId}" style="display: none;">`;
+    html += `<pre><code>${escapeHtml(JSON.stringify(result, null, 2))}</code></pre>`;
+    html += `</div>`;
+    html += '</div>';
+
+    messageDiv.innerHTML = html;
+    chatMessages.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+// Toggle tool result details
+window.toggleToolResult = function(resultId) {
+    const detailsDiv = document.getElementById(resultId);
+    const button = detailsDiv.previousElementSibling.querySelector('.tool-result-toggle');
+
+    if (detailsDiv.style.display === 'none') {
+        detailsDiv.style.display = 'block';
+        button.textContent = '▲ Details';
+    } else {
+        detailsDiv.style.display = 'none';
+        button.textContent = '▼ Details';
+    }
+};
 
 // Add loading indicator
 function addLoadingIndicator() {

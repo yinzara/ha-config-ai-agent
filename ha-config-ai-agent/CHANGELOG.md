@@ -10,3 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Initial Version
 
 Initial version of the AI Configuration Agent add-on
+
+## [0.1.1] - 2025-10-26
+
+Enhanced API and UI to use streaming responses to provide
+faster feedback to the frontend as queries are processed involving
+tools.
+
+Added tool call results (and tool calls) into the chat history UI.

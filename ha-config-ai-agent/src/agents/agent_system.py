@@ -100,13 +100,298 @@ Response Style:
 
 Remember: You're helping manage a production Home Assistant system. Safety and clarity are paramount."""
 
+    async def chat_stream(
+        self,
+        user_message: str,
+        conversation_history: Optional[List[Dict[str, Any]]] = None
+    ):
+        """
+        Process a user message and stream response events in real-time.
+
+        Args:
+            user_message: The user's message/request
+            conversation_history: Optional list of previous messages
+                                Format: [{"role": "user"|"assistant", "content": "..."}]
+
+        Yields:
+            Dict events with:
+                - event: "token" | "tool_call" | "tool_result" | "message_complete" | "complete" | "error"
+                - data: JSON string with event-specific data
+
+        Example:
+            >>> async for event in agent_system.chat_stream("Enable debug logging"):
+            ...     print(event)
+        """
+        import json
+
+        if not self.client:
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "error": "OpenAI API not configured. Please set OPENAI_API_KEY environment variable."
+                })
+            }
+            return
+
+        try:
+            logger.info(f"Agent streaming user message: {user_message[:100]}...")
+
+            # Build messages list
+            messages = [{"role": "system", "content": self.system_prompt}]
+
+            # Track the starting point for new messages (after history)
+            history_length = 1  # system message
+            if conversation_history:
+                messages.extend(conversation_history)
+                history_length += len(conversation_history)
+
+            # Add current user message
+            messages.append({"role": "user", "content": user_message})
+
+            # Define available tools for function calling
+            tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "search_config_files",
+                        "description": "Search configuration files (all YAML files + lovelace.yaml, plus individual device/entity/area files if search_pattern matches). Returns individual files like devices/{id}.json, entities/{entity_id}.json, and areas/{area_id}.json for matching items. Devices/entities/areas are ONLY included when search_pattern is provided.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "search_pattern": {
+                                    "type": "string",
+                                    "description": "Optional text to search for in file contents (case-insensitive). Only files containing this text will be returned. Omit to return all files."
+                                }
+                            },
+                            "required": []
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "propose_config_changes",
+                        "description": "Propose changes to one or more configuration files for user approval. Use this to batch multiple file changes together. First use search_config_files to read files, then provide complete new content for each as YAML strings.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "changes": {
+                                    "type": "array",
+                                    "description": "Array of file changes. Each change must include file_path and new_content.",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "file_path": {
+                                                "type": "string",
+                                                "description": "Relative path to config file (e.g., 'configuration.yaml', 'switches.yaml'). New areas can be specified with 'areas/{area_id}.json' and must include the 'name'"
+                                            },
+                                            "new_content": {
+                                                "type": "string",
+                                                "description": "The complete new content of the file as a valid YAML string. Include all lines - both changed and unchanged."
+                                            }
+                                        },
+                                        "required": ["file_path", "new_content"]
+                                    }
+                                },
+                                "reason": {
+                                    "type": "string",
+                                    "description": "Clear explanation of what changed and why these changes are needed (applies to all files)"
+                                }
+                            },
+                            "required": ["changes", "reason"]
+                        }
+                    }
+                }
+            ]
+
+            # Track tool calls and results
+            new_messages = []
+
+            # Loop to handle multiple rounds of tool calls
+            max_iterations = 10
+            iteration = 0
+
+            while iteration < max_iterations:
+                iteration += 1
+                logger.info(f"[ITERATION {iteration}] Calling OpenAI streaming API")
+
+                # Call OpenAI API with streaming
+                stream = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    stream=True
+                )
+
+                # Accumulate the streaming response
+                accumulated_content = ""
+                accumulated_tool_calls = []
+                current_tool_call = None
+
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta
+
+                    # Stream content tokens
+                    if delta.content:
+                        accumulated_content += delta.content
+                        yield {
+                            "event": "token",
+                            "data": json.dumps({
+                                "content": delta.content,
+                                "iteration": iteration
+                            })
+                        }
+
+                    # Handle tool calls
+                    if delta.tool_calls:
+                        for tool_call_delta in delta.tool_calls:
+                            # Initialize new tool call
+                            if tool_call_delta.index is not None:
+                                while len(accumulated_tool_calls) <= tool_call_delta.index:
+                                    accumulated_tool_calls.append({
+                                        "id": "",
+                                        "type": "function",
+                                        "function": {"name": "", "arguments": ""}
+                                    })
+                                current_tool_call = accumulated_tool_calls[tool_call_delta.index]
+
+                            # Update tool call details
+                            if tool_call_delta.id:
+                                current_tool_call["id"] = tool_call_delta.id
+                            if tool_call_delta.function:
+                                if tool_call_delta.function.name:
+                                    current_tool_call["function"]["name"] = tool_call_delta.function.name
+                                if tool_call_delta.function.arguments:
+                                    current_tool_call["function"]["arguments"] += tool_call_delta.function.arguments
+
+                    # Check for finish reason
+                    if chunk.choices[0].finish_reason:
+                        break
+
+                # Check if we have tool calls
+                if not accumulated_tool_calls:
+                    # No tool calls - final response
+                    logger.info(f"[ITERATION {iteration}] No tool calls, final response received")
+
+                    # Send message complete event with full message data
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": accumulated_content
+                    }
+                    new_messages.append(assistant_message)
+
+                    yield {
+                        "event": "message_complete",
+                        "data": json.dumps({
+                            "message": assistant_message,
+                            "iteration": iteration
+                        })
+                    }
+                    break
+
+                # We have tool calls - add assistant message to history
+                logger.info(f"[ITERATION {iteration}] Processing {len(accumulated_tool_calls)} tool call(s)")
+
+                assistant_message = {
+                    "role": "assistant",
+                    "content": accumulated_content,
+                    "tool_calls": accumulated_tool_calls
+                }
+                messages.append(assistant_message)
+                new_messages.append(assistant_message)
+
+                # Notify about tool calls
+                yield {
+                    "event": "tool_call",
+                    "data": json.dumps({
+                        "tool_calls": accumulated_tool_calls,
+                        "iteration": iteration
+                    })
+                }
+
+                # Execute each tool call
+                for tool_call in accumulated_tool_calls:
+                    function_name = tool_call["function"]["name"]
+                    function_args = json.loads(tool_call["function"]["arguments"])
+
+                    logger.info(f"[ITERATION {iteration}] Calling tool: {function_name}")
+
+                    # Execute the tool function
+                    if function_name == "search_config_files":
+                        result = await self.tools.search_config_files(**function_args)
+                        logger.info(f"[ITERATION {iteration}] Tool result: success={result.get('success')}, file_count={result.get('count')}")
+                    elif function_name == "propose_config_changes":
+                        if "changes" not in function_args or not isinstance(function_args["changes"], list):
+                            error_msg = (
+                                "ERROR: propose_config_changes requires a 'changes' parameter with a list of file changes. "
+                                "Each change must have 'file_path' and 'new_content'. "
+                                "You MUST first read files with search_config_files, then provide all modified content. "
+                                f"Received args: {function_args}"
+                            )
+                            logger.error(error_msg)
+                            result = {"success": False, "error": error_msg}
+                        else:
+                            result = await self.tools.propose_config_changes(**function_args)
+                            logger.info(f"[ITERATION {iteration}] Tool result: success={result.get('success')}, changeset_id={result.get('changeset_id')}")
+                    else:
+                        result = {"success": False, "error": f"Unknown tool: {function_name}"}
+                        logger.error(f"[ITERATION {iteration}] Unknown tool requested: {function_name}")
+
+                    # Add tool result to messages
+                    tool_message = {
+                        "role": "tool",
+                        "tool_call_id": tool_call["id"],
+                        "content": json.dumps(result)
+                    }
+                    messages.append(tool_message)
+                    new_messages.append(tool_message)
+
+                    # Notify about tool result
+                    yield {
+                        "event": "tool_result",
+                        "data": json.dumps({
+                            "tool_call_id": tool_call["id"],
+                            "function": function_name,
+                            "result": result,
+                            "iteration": iteration
+                        })
+                    }
+
+            # Send completion event with all new messages
+            if iteration >= max_iterations:
+                logger.warning(f"Hit max iterations ({max_iterations}), stopping")
+                yield {
+                    "event": "error",
+                    "data": json.dumps({
+                        "error": "Maximum iteration limit reached. Please try breaking down your request."
+                    })
+                }
+
+            logger.info(f"Agent completed after {iteration} iteration(s)")
+
+            yield {
+                "event": "complete",
+                "data": json.dumps({
+                    "messages": new_messages,
+                    "iterations": iteration
+                })
+            }
+
+        except Exception as e:
+            logger.error(f"Agent streaming error: {e}", exc_info=True)
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)})
+            }
+
     async def chat(
         self,
         user_message: str,
         conversation_history: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
-        Process a user message and return agent response.
+        Process a user message and return agent response (non-streaming version).
 
         Args:
             user_message: The user's message/request

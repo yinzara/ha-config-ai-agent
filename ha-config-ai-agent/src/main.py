@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sse_starlette.sse import EventSourceResponse
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
@@ -82,7 +83,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="AI Configuration Agent",
     description="AI-powered Home Assistant configuration management",
-    version="0.1.0",
+    version="0.1.1",
     lifespan=lifespan
 )
 
@@ -111,7 +112,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": "0.1.0",
+        "version": "0.1.1",
         "config_manager_ready": config_manager is not None,
         "agent_system_ready": agent_system is not None,
         "openai_configured": bool(os.getenv('OPENAI_API_KEY'))
@@ -123,28 +124,27 @@ async def index(request: Request):
     """Serve main interface."""
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "version": "0.1.0"
+        "version": "0.1.1"
     })
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     """
-    Chat with the AI configuration assistant.
+    Chat with the AI configuration assistant using Server-Sent Events (SSE).
 
-    This is the main endpoint for interacting with the AI agent system.
+    This endpoint streams responses from the AI agent system in real-time.
     The agent can read configuration, propose changes, and answer questions.
 
     Args:
         request: ChatRequest with user message and optional conversation history
 
     Returns:
-        Dict with:
-            - success: bool
-            - response: str (agent's final text response)
-            - messages: List[Dict] (new messages generated during this request in OpenAI format)
+        EventSourceResponse streaming JSON events with:
+            - type: "token" | "tool_call" | "tool_result" | "complete" | "error"
+            - data: event-specific data
 
     Raises:
-        HTTPException: 500 if agent system not initialized or error occurs
+        HTTPException: 500 if agent system not initialized
     """
     if not agent_system:
         raise HTTPException(
@@ -152,25 +152,23 @@ async def chat(request: ChatRequest):
             detail="Agent system not initialized. Please configure OPENAI_API_KEY."
         )
 
-    try:
-        result = await agent_system.chat(
-            user_message=request.message,
-            conversation_history=request.conversation_history
-        )
+    async def event_generator():
+        """Generate SSE events from the agent system."""
+        try:
+            async for event in agent_system.chat_stream(
+                user_message=request.message,
+                conversation_history=request.conversation_history
+            ):
+                yield event
+        except Exception as e:
+            logger.error(f"Stream error: {e}", exc_info=True)
+            import json
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)})
+            }
 
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=500,
-                detail=result.get("error", "Unknown error")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Chat error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+    return EventSourceResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/api/approve")

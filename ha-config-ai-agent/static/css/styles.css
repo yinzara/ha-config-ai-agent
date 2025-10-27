@@ -789,6 +789,86 @@ footer {
     background: #555;
 }
 
+/* Tool Result Message Styles */
+.tool-result-message {
+    align-self: stretch;
+    max-width: 100%;
+    background: transparent;
+    padding: 0;
+}
+
+.tool-result-content {
+    background: rgba(45, 45, 45, 0.5);
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--primary-color);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.95rem;
+}
+
+.tool-result-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: default;
+}
+
+.tool-result-icon {
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.tool-result-summary {
+    flex: 1;
+    color: var(--text-color);
+    font-weight: 500;
+}
+
+.tool-result-toggle {
+    background: rgba(3, 169, 244, 0.2);
+    border: 1px solid var(--primary-color);
+    color: var(--primary-color);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.tool-result-toggle:hover {
+    background: rgba(3, 169, 244, 0.3);
+    transform: translateY(-1px);
+}
+
+.tool-result-details {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+.tool-result-details pre {
+    background: rgba(0, 0, 0, 0.4);
+    padding: 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 0;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.tool-result-details code {
+    font-family: 'Courier New', Consolas, Monaco, monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: #e0e0e0;
+}
+
+/* Error state for tool results */
+.tool-result-content:has(.tool-result-icon:contains('❌')) {
+    border-left-color: var(--danger-color);
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     header h1 {
