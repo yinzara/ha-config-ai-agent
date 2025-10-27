@@ -869,6 +869,65 @@ footer {
     border-left-color: var(--danger-color);
 }
 
+/* Approval Processing Indicator */
+.approval-processing {
+    background: linear-gradient(135deg, rgba(3, 169, 244, 0.1) 0%, rgba(0, 188, 212, 0.1) 100%);
+    border: 2px solid var(--primary-color);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    animation: pulseGlow 2s ease-in-out infinite;
+}
+
+.approval-processing-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+}
+
+.approval-processing-content.approval-success {
+    background: linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(139, 195, 74, 0.1) 100%);
+}
+
+.approval-processing-text {
+    color: var(--primary-color);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.approval-success .approval-processing-text {
+    color: var(--success-color);
+}
+
+.approval-success-icon {
+    font-size: 2rem;
+    animation: scaleIn 0.5s ease-out;
+}
+
+@keyframes pulseGlow {
+    0%, 100% {
+        box-shadow: 0 0 10px rgba(3, 169, 244, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(3, 169, 244, 0.6);
+    }
+}
+
+@keyframes scaleIn {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     header h1 {

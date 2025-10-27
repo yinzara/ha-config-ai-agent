@@ -1,5 +1,8 @@
 #!/usr/bin/with-contenv bashio
 
+# Disable Python output buffering for real-time streaming
+export PYTHONUNBUFFERED=1
+
 # Get configuration from add-on options
 export OPENAI_API_URL=$(bashio::config 'openai_api_url' ${OPENAI_API_URL:-})
 export OPENAI_API_KEY=$(bashio::config 'openai_api_key' ${OPENAI_API_KEY:-})
@@ -24,4 +27,6 @@ bashio::log.info "HA Config: ${HA_CONFIG_DIR}"
 exec uvicorn src.main:app \
     --host 0.0.0.0 \
     --port 8099 \
-    --log-level "${LOG_LEVEL}"
+    --log-level "${LOG_LEVEL}" \
+    --no-access-log \
+    --timeout-keep-alive 300

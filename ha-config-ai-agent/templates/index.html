@@ -60,6 +60,16 @@
         </footer>
     </div>
 
+    <script src="static/js/websocket-chat.js"></script>
     <script src="static/js/app.js"></script>
+    <script>
+        // Use WebSocket instead of SSE to avoid Ingress buffering
+        // Override the sendMessage function
+        if (typeof sendMessageWebSocket !== 'undefined') {
+            console.log('Using WebSocket mode for real-time streaming');
+            const originalSendMessage = sendMessage;
+            sendMessage = sendMessageWebSocket;
+        }
+    </script>
 </body>
 </html>

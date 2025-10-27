@@ -6,6 +6,8 @@ console.log('AI Configuration Agent initializing...');
 let conversationHistory = [];
 let pendingChangeset = null;
 let currentChangesetData = null;
+// Track tool_call announcements per assistant iteration to avoid duplicates
+let toolCallIterationsShown = new Set();
 
 // DOM elements
 let chatMessages, messageInput, sendBtn, diffModal, diffContent;
@@ -30,9 +32,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Check health and config
+    // Check health
     checkHealth();
-    checkConfig();
 });
 
 // Check health endpoint
@@ -53,16 +54,6 @@ async function checkHealth() {
     }
 }
 
-// Check config endpoint
-async function checkConfig() {
-    try {
-        const response = await fetch('api/config/info');
-        const data = await response.json();
-        console.log('Config info:', data);
-    } catch (error) {
-        console.error('Config check failed:', error);
-    }
-}
 
 // Send message to agent using SSE
 async function sendMessage() {
@@ -91,6 +82,8 @@ async function sendMessage() {
     let loadingIndicator = addLoadingIndicator();
 
     try {
+        // Reset per-request tool call dedupe tracker
+        toolCallIterationsShown = new Set();
         // Use fetch with streaming instead of EventSource for POST support
         const response = await fetch('api/chat', {
             method: 'POST',
@@ -108,140 +101,166 @@ async function sendMessage() {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        // Parse SSE stream
+        // Parse SSE stream (robust SSE parser)
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let currentEvent = null;
+
+        // SSE state
+        let eventName = null; // defaults to 'message' per spec
+        let dataLines = [];
+
+        const dispatchEvent = (name, dataStr) => {
+            if (!name) name = 'message';
+            if (!dataStr) dataStr = '';
+
+            // Defensive: remove spinner on first delivered event of any type
+            if (loadingIndicator && loadingIndicator.parentNode) {
+                removeLoadingIndicator(loadingIndicator);
+                loadingIndicator = null;
+            }
+
+            try {
+                const data = dataStr ? JSON.parse(dataStr) : {};
+
+                if (name === 'token') {
+                    // Accumulate content
+                    currentMessageContent += data.content || '';
+
+                    // Update or create assistant message element
+                    if (!currentAssistantMessage) {
+                        currentAssistantMessage = addAssistantMessageStreaming('');
+                    }
+                    updateAssistantMessageStreaming(currentAssistantMessage, currentMessageContent);
+
+                } else if (name === 'message_complete') {
+                    conversationHistory.push(data.message);
+                    if (currentAssistantMessage) {
+                        finalizeAssistantMessageStreaming(currentAssistantMessage);
+                    }
+                    currentMessageContent = '';
+                    currentAssistantMessage = null;
+
+                } else if (name === 'tool_call') {
+                    // Dedupe tool_call announcements per iteration
+                    if (typeof data.iteration !== 'undefined') {
+                        if (toolCallIterationsShown.has(data.iteration)) {
+                            return; // skip duplicate
+                        }
+                        toolCallIterationsShown.add(data.iteration);
+                    }
+
+                    // Finalize current streaming message before tool execution UI
+                    if (currentAssistantMessage) {
+                        finalizeAssistantMessageStreaming(currentAssistantMessage);
+                        currentAssistantMessage = null;
+                    }
+
+                    // Add assistant message with tool calls to history
+                    conversationHistory.push({
+                        role: 'assistant',
+                        content: currentMessageContent,
+                        tool_calls: data.tool_calls
+                    });
+                    currentMessageContent = '';
+
+                    // Show tool execution indicator summary
+                    addSystemMessage(`🔧 Calling ${data.tool_calls.length} tool(s): ${data.tool_calls.map(tc => tc.function.name).join(', ')}`);
+
+                } else if (name === 'tool_start') {
+                    addSystemMessage(`▶️ Executing: ${data.function}...`);
+
+                } else if (name === 'tool_result') {
+                    conversationHistory.push({
+                        role: 'tool',
+                        tool_call_id: data.tool_call_id,
+                        content: JSON.stringify(data.result)
+                    });
+                    addToolResultMessage(data.function, data.result);
+
+                    if (data.function === 'propose_config_changes' && data.result.success) {
+                        const changesetData = {
+                            changeset_id: data.result.changeset_id,
+                            total_files: data.result.total_files,
+                            files: data.result.files,
+                            reason: data.result.reason
+                        };
+                        const assistantMsg = conversationHistory
+                            .slice()
+                            .reverse()
+                            .find(m => m.role === 'assistant' && m.tool_calls);
+                        if (assistantMsg) {
+                            const toolCall = assistantMsg.tool_calls.find(tc => tc.id === data.tool_call_id);
+                            if (toolCall) {
+                                const args = JSON.parse(toolCall.function.arguments);
+                                changesetData.file_changes_detail = args.changes;
+                                changesetData.original_contents = extractOriginalContents(conversationHistory, args.changes);
+                            }
+                        }
+                        addApprovalCard(changesetData);
+                    }
+
+                } else if (name === 'complete') {
+                    console.log('Stream complete:', data);
+
+                } else if (name === 'error') {
+                    addSystemMessage(`❌ Error: ${data.error}`);
+                }
+            } catch (e) {
+                console.error('Error parsing SSE event:', name, dataStr, e);
+            }
+        };
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
+            // As soon as any bytes arrive, remove the spinner (defensive)
+            if (value && value.byteLength && loadingIndicator && loadingIndicator.parentNode) {
+                removeLoadingIndicator(loadingIndicator);
+                loadingIndicator = null;
+            }
+
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
-
-            // Keep the last incomplete line in the buffer
             buffer = lines.pop() || '';
 
-            for (const line of lines) {
-                if (!line.trim()) continue;
+            for (let raw of lines) {
+                // Normalize line endings and trim trailing CR
+                const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+
+                if (line === '') {
+                    // Blank line indicates dispatch
+                    const dataStr = dataLines.length ? dataLines.join('\n') : '';
+                    dispatchEvent(eventName, dataStr);
+                    // Reset state
+                    eventName = null;
+                    dataLines = [];
+                    continue;
+                }
+
+                if (line.startsWith(':')) {
+                    // Comment/heartbeat, ignore
+                    continue;
+                }
 
                 if (line.startsWith('event:')) {
-                    currentEvent = line.substring(6).trim();
+                    eventName = line.substring(6).trim();
                     continue;
                 }
 
                 if (line.startsWith('data:')) {
-                    const dataStr = line.substring(5).trim();
-                    if (!dataStr) continue;
-
-                    try {
-                        const data = JSON.parse(dataStr);
-
-                        // Handle different event types based on currentEvent from event: line
-                        if (currentEvent === 'token') {
-                            // Remove loading indicator on first token
-                            if (loadingIndicator && loadingIndicator.parentNode) {
-                                removeLoadingIndicator(loadingIndicator);
-                                loadingIndicator = null;
-                            }
-
-                            // Accumulate content
-                            currentMessageContent += data.content;
-
-                            // Update or create assistant message element
-                            if (!currentAssistantMessage) {
-                                currentAssistantMessage = addAssistantMessageStreaming('');
-                            }
-                            updateAssistantMessageStreaming(currentAssistantMessage, currentMessageContent);
-
-                        } else if (currentEvent === 'message_complete') {
-                            // Add message to conversation history
-                            conversationHistory.push(data.message);
-
-                            // Finalize the assistant message display
-                            if (currentAssistantMessage) {
-                                finalizeAssistantMessageStreaming(currentAssistantMessage);
-                            }
-                            currentMessageContent = '';
-                            currentAssistantMessage = null;
-
-                        } else if (currentEvent === 'tool_call') {
-                            // Finalize current message if any
-                            if (currentAssistantMessage) {
-                                finalizeAssistantMessageStreaming(currentAssistantMessage);
-                                currentAssistantMessage = null;
-                            }
-
-                            // Add assistant message with tool calls to history
-                            conversationHistory.push({
-                                role: 'assistant',
-                                content: currentMessageContent,
-                                tool_calls: data.tool_calls
-                            });
-                            currentMessageContent = '';
-
-                            // Show tool execution indicator
-                            addSystemMessage(`🔧 Executing tools: ${data.tool_calls.map(tc => tc.function.name).join(', ')}`);
-
-                            // Re-add loading indicator while tools execute and AI processes next response
-                            if (!loadingIndicator) {
-                                loadingIndicator = addLoadingIndicator();
-                            }
-
-                        } else if (currentEvent === 'tool_result') {
-                            // Add tool result to history
-                            conversationHistory.push({
-                                role: 'tool',
-                                tool_call_id: data.tool_call_id,
-                                content: JSON.stringify(data.result)
-                            });
-
-                            // Display tool result visually
-                            addToolResultMessage(data.function, data.result);
-
-                            // Process tool results (especially for propose_config_changes)
-                            if (data.function === 'propose_config_changes' && data.result.success) {
-                                // Extract changeset info and display approval card
-                                const changesetData = {
-                                    changeset_id: data.result.changeset_id,
-                                    total_files: data.result.total_files,
-                                    files: data.result.files,
-                                    reason: data.result.reason
-                                };
-
-                                // Find the tool call to get the original arguments
-                                const assistantMsg = conversationHistory
-                                    .slice()
-                                    .reverse()
-                                    .find(m => m.role === 'assistant' && m.tool_calls);
-
-                                if (assistantMsg) {
-                                    const toolCall = assistantMsg.tool_calls.find(tc => tc.id === data.tool_call_id);
-                                    if (toolCall) {
-                                        const args = JSON.parse(toolCall.function.arguments);
-                                        changesetData.file_changes_detail = args.changes;
-                                        changesetData.original_contents = extractOriginalContents(conversationHistory, args.changes);
-                                    }
-                                }
-
-                                addApprovalCard(changesetData);
-                            }
-
-                        } else if (currentEvent === 'complete') {
-                            console.log('Stream complete:', data);
-
-                        } else if (currentEvent === 'error') {
-                            addSystemMessage(`❌ Error: ${data.error}`);
-                        }
-
-                        currentEvent = null;
-                    } catch (e) {
-                        console.error('Error parsing SSE data:', e, dataStr);
-                    }
+                    dataLines.push(line.substring(5).trimStart());
+                    continue;
                 }
+                // Ignore other fields (id, retry) for now
             }
+        }
+
+        // Flush any remaining event if buffer ended without trailing blank line
+        if (dataLines.length) {
+            const dataStr = dataLines.join('\n');
+            dispatchEvent(eventName, dataStr);
         }
 
         // Final cleanup
@@ -645,9 +664,30 @@ window.closeDiffModal = function() {
 window.approvePendingChanges = async function() {
     if (!currentChangesetData) return;
 
-    // Get the approve button and disable it
-    const approveBtn = document.querySelector('.modal-actions .btn-approve');
-    const rejectBtn = document.querySelector('.modal-actions .btn-reject');
+    // Get the buttons from modal-footer
+    const modalFooter = document.querySelector('.modal-footer');
+    const approveBtn = modalFooter.querySelector('.btn-success');
+    const rejectBtn = modalFooter.querySelector('.btn-danger');
+    const closeBtn = modalFooter.querySelector('.btn-secondary');
+    const modalBody = document.querySelector('.modal-body');
+
+    // Prevent double-clicks by checking if already processing
+    if (approveBtn && approveBtn.disabled) return;
+
+    // Add processing indicator
+    const processingDiv = document.createElement('div');
+    processingDiv.className = 'approval-processing';
+    processingDiv.innerHTML = `
+        <div class="approval-processing-content">
+            <div class="loading-dots">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </div>
+            <span class="approval-processing-text">Applying changes and validating configuration...</span>
+        </div>
+    `;
+    modalBody.insertBefore(processingDiv, modalBody.firstChild);
 
     if (approveBtn) {
         approveBtn.disabled = true;
@@ -656,18 +696,50 @@ window.approvePendingChanges = async function() {
     if (rejectBtn) {
         rejectBtn.disabled = true;
     }
+    if (closeBtn) {
+        closeBtn.disabled = true;
+    }
 
-    await handleApproval(currentChangesetData.changeset_id, true);
-    closeDiffModal();
+    const success = await handleApproval(currentChangesetData.changeset_id, true);
+
+    if (success) {
+        // Show success briefly before closing
+        processingDiv.innerHTML = `
+            <div class="approval-processing-content approval-success">
+                <span class="approval-success-icon">✅</span>
+                <span class="approval-processing-text">Changes applied successfully!</span>
+            </div>
+        `;
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        closeDiffModal();
+    } else {
+        // Show error and keep modal open
+        processingDiv.remove();
+        if (approveBtn) {
+            approveBtn.disabled = false;
+            approveBtn.textContent = '✓ Approve & Apply';
+        }
+        if (rejectBtn) {
+            rejectBtn.disabled = false;
+        }
+        if (closeBtn) {
+            closeBtn.disabled = false;
+        }
+    }
 };
 
 // Reject pending changes
 window.rejectPendingChanges = async function() {
     if (!currentChangesetData) return;
 
-    // Get the reject button and disable it
-    const approveBtn = document.querySelector('.modal-actions .btn-approve');
-    const rejectBtn = document.querySelector('.modal-actions .btn-reject');
+    // Get the buttons from modal-footer
+    const modalFooter = document.querySelector('.modal-footer');
+    const approveBtn = modalFooter.querySelector('.btn-success');
+    const rejectBtn = modalFooter.querySelector('.btn-danger');
+    const closeBtn = modalFooter.querySelector('.btn-secondary');
+
+    // Prevent double-clicks by checking if already processing
+    if (rejectBtn && rejectBtn.disabled) return;
 
     if (rejectBtn) {
         rejectBtn.disabled = true;
@@ -675,6 +747,9 @@ window.rejectPendingChanges = async function() {
     }
     if (approveBtn) {
         approveBtn.disabled = true;
+    }
+    if (closeBtn) {
+        closeBtn.disabled = true;
     }
 
     await handleApproval(currentChangesetData.changeset_id, false);
@@ -698,6 +773,7 @@ async function handleApproval(changesetId, approved) {
 
         if (!response.ok) {
             const error = await response.json();
+            addSystemMessage(`❌ Error: ${error.detail || 'Request failed'}`);
             throw new Error(error.detail || 'Request failed');
         }
 
@@ -727,16 +803,20 @@ async function handleApproval(changesetId, approved) {
                 }
 
                 addSystemMessage(message);
+                return true;
             } else {
                 addSystemMessage(`⚠️ ${data.message || 'Changes not applied'}`);
+                return false;
             }
         } else {
             addSystemMessage('❌ Changes rejected.');
+            return true;
         }
 
     } catch (error) {
         console.error('Approval error:', error);
         addSystemMessage(`❌ Error: ${error.message}`);
+        return false;
     }
 }
 

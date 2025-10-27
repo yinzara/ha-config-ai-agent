@@ -75,12 +75,8 @@ Key Responsibilities:
 5. **Best Practices**: Guide users toward Home Assistant best practices
 
 Available Tools:
-- read_config_file: Read and parse a configuration file
-- propose_config_change: Propose changes for user approval
-- list_config_files: List available configuration files
-- get_config_structure: Get the structure of a configuration file
-- list_backups: View backup history
-- search_config: Search for terms in configuration
+- search_config_files: Search for terms in configuration (use first)
+- propose_config_changes: Propose changes for user approval
 
 Important Guidelines:
 - NEVER apply changes directly - always use propose_config_change
@@ -90,6 +86,7 @@ Important Guidelines:
 - Validate that changes align with Home Assistant documentation
 - Warn users about potential breaking changes
 - Suggest testing in a development environment for major changes
+- Remember when searching for files that terms are case-insensitive so don't search for multiple case variations of a word
 
 Response Style:
 - Be concise but thorough
@@ -228,6 +225,8 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                 accumulated_content = ""
                 accumulated_tool_calls = []
                 current_tool_call = None
+                tool_calls_announced = False
+                tool_calls_pending_announced = False
 
                 async for chunk in stream:
                     delta = chunk.choices[0].delta
@@ -235,6 +234,7 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                     # Stream content tokens
                     if delta.content:
                         accumulated_content += delta.content
+                        logger.debug(f"[STREAM] Yielding token: {delta.content[:50]}")
                         yield {
                             "event": "token",
                             "data": json.dumps({
@@ -264,6 +264,17 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                                     current_tool_call["function"]["name"] = tool_call_delta.function.name
                                 if tool_call_delta.function.arguments:
                                     current_tool_call["function"]["arguments"] += tool_call_delta.function.arguments
+
+                        # Announce tool calls to UI as soon as we know them (may have partial arguments)
+                        if not tool_calls_announced and any(tc.get("function", {}).get("name") for tc in accumulated_tool_calls):
+                            yield {
+                                "event": "tool_call",
+                                "data": json.dumps({
+                                    "tool_calls": accumulated_tool_calls,
+                                    "iteration": iteration
+                                })
+                            }
+                            tool_calls_announced = True
 
                     # Check for finish reason
                     if chunk.choices[0].finish_reason:
@@ -301,21 +312,34 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                 messages.append(assistant_message)
                 new_messages.append(assistant_message)
 
-                # Notify about tool calls
-                yield {
-                    "event": "tool_call",
-                    "data": json.dumps({
-                        "tool_calls": accumulated_tool_calls,
-                        "iteration": iteration
-                    })
-                }
+                # Notify about ALL tool calls upfront before executing any (only if not already announced)
+                if not tool_calls_announced:
+                    yield {
+                        "event": "tool_call",
+                        "data": json.dumps({
+                            "tool_calls": accumulated_tool_calls,
+                            "iteration": iteration
+                        })
+                    }
+                    tool_calls_announced = True
 
-                # Execute each tool call
+                # Execute each tool call and stream results immediately
                 for tool_call in accumulated_tool_calls:
                     function_name = tool_call["function"]["name"]
                     function_args = json.loads(tool_call["function"]["arguments"])
 
                     logger.info(f"[ITERATION {iteration}] Calling tool: {function_name}")
+
+                    # Send individual tool execution start event
+                    yield {
+                        "event": "tool_start",
+                        "data": json.dumps({
+                            "tool_call_id": tool_call["id"],
+                            "function": function_name,
+                            "arguments": function_args,
+                            "iteration": iteration
+                        })
+                    }
 
                     # Execute the tool function
                     if function_name == "search_config_files":
@@ -347,7 +371,7 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                     messages.append(tool_message)
                     new_messages.append(tool_message)
 
-                    # Notify about tool result
+                    # Notify about tool result immediately after execution
                     yield {
                         "event": "tool_result",
                         "data": json.dumps({

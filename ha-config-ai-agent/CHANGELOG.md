@@ -18,3 +18,8 @@ faster feedback to the frontend as queries are processed involving
 tools.
 
 Added tool call results (and tool calls) into the chat history UI.
+
+## [0.1.2] - 2025-10-26
+
+Refactored API to use websockets as streaming responses was
+not working properly.
