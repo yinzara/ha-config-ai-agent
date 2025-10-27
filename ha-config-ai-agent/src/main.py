@@ -67,10 +67,28 @@ async def lifespan(_: FastAPI):
     # Phase 3: Initialize agent system
     try:
         if config_manager:
-            system_prompt = os.getenv('SYSTEM_PROMPT')
-            if not system_prompt:
-                logger.error("SYSTEM_PROMPT environment variable not set")
-                raise ValueError("SYSTEM_PROMPT is required")
+            # Load custom system prompt from file if specified
+            system_prompt = None
+            system_prompt_file = os.getenv('SYSTEM_PROMPT_FILE')
+            if system_prompt_file:
+                try:
+                    config_dir = os.getenv('HA_CONFIG_DIR', '/config')
+                    prompt_path = os.path.join(config_dir, system_prompt_file)
+
+                    # Security: Ensure path is within config directory
+                    real_config = os.path.realpath(config_dir)
+                    real_prompt = os.path.realpath(prompt_path)
+                    if not real_prompt.startswith(real_config):
+                        logger.error(f"System prompt file path {system_prompt_file} is outside config directory")
+                    else:
+                        with open(prompt_path, 'r') as f:
+                            system_prompt = f.read()
+                        logger.info(f"Loaded custom system prompt from {system_prompt_file}")
+                except FileNotFoundError:
+                    logger.warning(f"System prompt file not found: {system_prompt_file}, using default")
+                except Exception as e:
+                    logger.error(f"Error reading system prompt file: {e}, using default")
+
             agent_system = AgentSystem(config_manager, system_prompt=system_prompt)
             logger.info("Agent system initialized")
         else:
@@ -87,7 +105,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="AI Configuration Agent",
     description="AI-powered Home Assistant configuration management",
-    version="0.1.3",
+    version="0.1.4",
     lifespan=lifespan
 )
 
@@ -116,7 +134,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": "0.1.3",
+        "version": "0.1.4",
         "config_manager_ready": config_manager is not None,
         "agent_system_ready": agent_system is not None,
         "openai_configured": bool(os.getenv('OPENAI_API_KEY'))
@@ -128,7 +146,7 @@ async def index(request: Request):
     """Serve main interface."""
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "version": "0.1.3"
+        "version": "0.1.4"
     })
 
 @app.post("/api/chat")

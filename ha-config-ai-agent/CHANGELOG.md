@@ -27,3 +27,7 @@ not working properly.
 ## [0.1.3] - 2025-10-27
 
 Moved system prompt into configuration options and improved prompt.
+
+## [0.1.4] - 2025-10-27
+
+Moved system prompt into config file as full system prompt in options was breaking HA.

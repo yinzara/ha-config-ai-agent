@@ -134,6 +134,7 @@ openai_api_url: "https://api.openai.com/v1"
 openai_api_key: "sk-your-api-key"
 openai_model: "gpt-4o"
 log_level: "info"
+system_prompt_file: ""
 ```
 
 #### Configuration Parameters
@@ -144,6 +145,7 @@ log_level: "info"
 | `openai_api_key` | Password | *Required* | API authentication key |
 | `openai_model` | String | `gpt-4o` | Model identifier to use |
 | `log_level` | List | `info` | Logging level: `debug`, `info`, `warning`, `error` |
+| `system_prompt_file` | String | `""` (empty) | Optional: Path to custom system prompt file (relative to `/config`) |
 
 ### AI Provider Setup
 
@@ -221,6 +223,102 @@ Access to the Claude family of models
 - `codellama` - Optimized for code
 
 **Note:** Performance depends on your hardware. GPU recommended.
+
+### Custom System Prompt
+
+You can customize the AI agent's behavior by providing a custom system prompt file. This allows you to modify the agent's personality, instructions, and capabilities without modifying the add-on code.
+
+#### Creating a Custom System Prompt
+
+1. **Create a prompt file** in your Home Assistant `/config` directory:
+   ```bash
+   # Example: Create a file at /config/ai_agent_prompt.txt
+   nano /config/ai_agent_prompt.txt
+   ```
+
+2. **Write your custom instructions**. Start with the default prompt and modify as needed:
+
+<details>
+<summary><b>Default System Prompt (Click to expand)</b></summary>
+
+```text
+You are a Home Assistant Configuration Assistant.
+
+Your role is to help users manage their Home Assistant configuration files safely and effectively.
+
+Key Responsibilities:
+1. **Understanding Requests**: Interpret user requests about Home Assistant configuration
+2. **Reading Configuration**: Use tools to examine current configuration files
+3. **Proposing Changes**: Suggest configuration changes with clear explanations using the propose_config_changes tool without requesting confirmation
+4. **Safety First**: Always explain the impact of changes before proposing them
+5. **Best Practices**: Guide users toward Home Assistant best practices
+
+Available Tools:
+- search_config_files: Search for terms in configuration (use first)
+- propose_config_changes: Propose changes for user approval
+
+Important Guidelines:
+- NEVER suggest changes directly - always use propose_config_change
+- Always read the current configuration before proposing changes
+- Explain WHY you're proposing changes, not just WHAT
+- Preserve all existing code, comments and structure when possible
+- Only change what's needed to complete the request of the user
+- Validate that changes align with Home Assistant documentation
+- Warn users about potential breaking changes
+- Suggest testing in a development environment for major changes
+- Remember when searching for files that terms are case-insensitive so don't search for multiple case variations of a word
+
+Response Style:
+- Be concise but thorough
+- Use technical terms appropriately
+- Provide examples when helpful
+- Format code blocks with YAML syntax
+- Ask clarifying questions if request is ambiguous
+
+Remember: You're helping manage a production Home Assistant system. Safety and clarity are paramount.
+```
+
+</details>
+
+3. **Configure the add-on** to use your custom prompt:
+   ```yaml
+   system_prompt_file: "ai_agent_prompt.txt"
+   ```
+
+4. **Restart the add-on** to load the new prompt
+
+#### File Path Requirements
+
+- Path must be **relative** to `/config`
+- Security: Path traversal is blocked (cannot access files outside `/config`)
+- Examples:
+  - `ai_agent_prompt.txt` → `/config/ai_agent_prompt.txt`
+  - `prompts/custom.txt` → `/config/prompts/custom.txt`
+  - `ai/system_prompt.md` → `/config/ai/system_prompt.md`
+
+#### Fallback Behavior
+
+- If `system_prompt_file` is empty or not set, the built-in default prompt is used
+- If the specified file is not found, a warning is logged and the default prompt is used
+- If there's an error reading the file, the default prompt is used
+
+#### Tips for Custom Prompts
+
+**Structure your prompt with:**
+- Clear role definition
+- Key responsibilities
+- Available tools (search_config_files, propose_config_changes)
+- Important guidelines and constraints
+- Response style preferences
+
+**Example use cases:**
+- Focus on specific integrations (e.g., "You specialize in Zigbee and Z-Wave configurations")
+- Emphasize automation best practices
+- Add domain-specific knowledge (e.g., "You understand solar energy systems")
+- Customize personality and tone
+- Add custom validation rules
+
+**Note:** The system prompt significantly affects the agent's behavior. Test changes carefully.
 
 #### Azure OpenAI
 
@@ -602,6 +700,7 @@ export BACKUP_DIR="./backups"
 export OPENAI_API_KEY="sk-your-key-here"
 export OPENAI_MODEL="gpt-4o"
 export LOG_LEVEL="debug"
+export SYSTEM_PROMPT_FILE=""  # Optional: path to custom prompt file
 
 # Run development server
 uvicorn src.main:app --reload --port 8099

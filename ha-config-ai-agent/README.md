@@ -43,6 +43,7 @@ openai_api_url: "https://api.openai.com/v1"
 openai_api_key: "sk-your-api-key-here"
 openai_model: "gpt-5-mini"
 log_level: "info"
+system_prompt_file: ""  # Optional: Custom system prompt file path
 ```
 
 ### Alternative AI Providers
@@ -84,6 +85,21 @@ openai_api_url: "https://your-resource.openai.azure.com/openai/deployments/your-
 openai_api_key: "your-azure-key"
 ```
 </details>
+
+### Custom System Prompt
+
+You can customize the AI agent's behavior by providing a custom system prompt file:
+
+1. Create a text file in your Home Assistant `/config` directory (e.g., `ai_agent_prompt.txt`)
+2. Write your custom system prompt instructions
+3. Set the configuration option:
+   ```yaml
+   system_prompt_file: "ai_agent_prompt.txt"
+   ```
+
+The file path must be relative to `/config` (e.g., `prompts/custom.txt` for `/config/prompts/custom.txt`).
+
+If not specified or if the file is not found, the built-in default system prompt is used.
 
 See [DOCS.md](DOCS.md) for detailed configuration options and setup instructions.
 
