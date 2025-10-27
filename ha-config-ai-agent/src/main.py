@@ -67,7 +67,11 @@ async def lifespan(_: FastAPI):
     # Phase 3: Initialize agent system
     try:
         if config_manager:
-            agent_system = AgentSystem(config_manager)
+            system_prompt = os.getenv('SYSTEM_PROMPT')
+            if not system_prompt:
+                logger.error("SYSTEM_PROMPT environment variable not set")
+                raise ValueError("SYSTEM_PROMPT is required")
+            agent_system = AgentSystem(config_manager, system_prompt=system_prompt)
             logger.info("Agent system initialized")
         else:
             logger.warning("Agent system not initialized - config manager unavailable")
@@ -83,7 +87,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="AI Configuration Agent",
     description="AI-powered Home Assistant configuration management",
-    version="0.1.2",
+    version="0.1.3",
     lifespan=lifespan
 )
 
@@ -112,7 +116,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": "0.1.2",
+        "version": "0.1.3",
         "config_manager_ready": config_manager is not None,
         "agent_system_ready": agent_system is not None,
         "openai_configured": bool(os.getenv('OPENAI_API_KEY'))
@@ -124,7 +128,7 @@ async def index(request: Request):
     """Serve main interface."""
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "version": "0.1.2"
+        "version": "0.1.3"
     })
 
 @app.post("/api/chat")

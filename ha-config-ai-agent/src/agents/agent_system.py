@@ -35,12 +35,13 @@ class AgentSystem:
     - Explaining configuration decisions
     """
 
-    def __init__(self, config_manager: ConfigurationManager):
+    def __init__(self, config_manager: ConfigurationManager, system_prompt: Optional[str] = None):
         """
         Initialize the agent system.
 
         Args:
             config_manager: ConfigurationManager for file operations
+            system_prompt: System prompt for the agent. Required.
         """
         self.config_manager = config_manager
         self.tools = AgentTools(config_manager, agent_system=self)
@@ -63,39 +64,11 @@ class AgentSystem:
         self.pending_changesets: Dict[str, Changeset] = {}
 
         # System prompt for the configuration agent
-        self.system_prompt = """You are a Home Assistant Configuration Assistant.
+        if not system_prompt:
+            raise ValueError("system_prompt is required. It should be provided from configuration.")
 
-Your role is to help users manage their Home Assistant configuration files safely and effectively.
-
-Key Responsibilities:
-1. **Understanding Requests**: Interpret user requests about Home Assistant configuration
-2. **Reading Configuration**: Use tools to examine current configuration files
-3. **Proposing Changes**: Suggest configuration changes with clear explanations
-4. **Safety First**: Always explain the impact of changes before proposing them
-5. **Best Practices**: Guide users toward Home Assistant best practices
-
-Available Tools:
-- search_config_files: Search for terms in configuration (use first)
-- propose_config_changes: Propose changes for user approval
-
-Important Guidelines:
-- NEVER apply changes directly - always use propose_config_change
-- Always read the current configuration before proposing changes
-- Explain WHY you're proposing changes, not just WHAT
-- Preserve comments and structure when possible
-- Validate that changes align with Home Assistant documentation
-- Warn users about potential breaking changes
-- Suggest testing in a development environment for major changes
-- Remember when searching for files that terms are case-insensitive so don't search for multiple case variations of a word
-
-Response Style:
-- Be concise but thorough
-- Use technical terms appropriately
-- Provide examples when helpful
-- Format code blocks with YAML syntax
-- Ask clarifying questions if request is ambiguous
-
-Remember: You're helping manage a production Home Assistant system. Safety and clarity are paramount."""
+        self.system_prompt = system_prompt
+        logger.info(f"System prompt configured ({len(system_prompt)} characters)")
 
     async def chat_stream(
         self,

@@ -23,3 +23,7 @@ Added tool call results (and tool calls) into the chat history UI.
 
 Refactored API to use websockets as streaming responses was
 not working properly.
+
+## [0.1.3] - 2025-10-27
+
+Moved system prompt into configuration options and improved prompt.
