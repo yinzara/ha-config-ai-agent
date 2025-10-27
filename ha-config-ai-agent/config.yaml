@@ -46,12 +46,11 @@ privileged: []
 # User-configurable options
 options:
   openai_api_url: "https://api.openai.com/v1"
-  openai_api_key: ""
   openai_model: "gpt-5-mini"
   log_level: "info"
 
 schema:
   openai_api_url: url
-  openai_api_key: password?
+  openai_api_key: password
   openai_model: str
   log_level: list(debug|info|warning|error)
