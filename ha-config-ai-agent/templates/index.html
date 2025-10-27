@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Configuration Agent</title>
+    <link rel="stylesheet" href="static/css/styles.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html@3.4.47/bundles/css/diff2html.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/diff@5.1.0/dist/diff.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/diff2html@3.4.47/bundles/js/diff2html-ui.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 AI Configuration Agent</h1>
+            <span class="version-badge">{{ version }}</span>
+        </header>
+
+        <main>
+            <!-- Chat Interface -->
+            <div class="chat-container">
+                <div id="chatMessages" class="chat-messages">
+                    <!-- Messages will be added here dynamically -->
+                </div>
+
+                <!-- Diff Viewer Modal -->
+                <div id="diffModal" class="modal" style="display: none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>📝 Proposed Changes</h3>
+                            <button class="modal-close" onclick="closeDiffModal()">&times;</button>
+                        </div>
+                        <div class="modal-body" id="diffContent">
+                            <!-- Diff content will be inserted here -->
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-success" onclick="approvePendingChanges()">✓ Approve & Apply</button>
+                            <button class="btn btn-danger" onclick="rejectPendingChanges()">✗ Reject</button>
+                            <button class="btn btn-secondary" onclick="closeDiffModal()">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Input Area -->
+                <div class="chat-input-area">
+                    <textarea
+                        id="messageInput"
+                        class="chat-input"
+                        placeholder="Ask me anything about your Home Assistant configuration..."
+                        rows="3"
+                    ></textarea>
+                    <button id="sendBtn" class="btn btn-primary">Send</button>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>AI Configuration Agent for Home Assistant</p>
+        </footer>
+    </div>
+
+    <script src="static/js/app.js"></script>
+</body>
+</html>

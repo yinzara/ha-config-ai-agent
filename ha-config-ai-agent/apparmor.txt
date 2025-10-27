@@ -1,0 +1,61 @@
+#include <tunables/global>
+
+profile hassio-config-agent flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+
+  # Capabilities
+  file,
+  signal (send) set=(kill,term,int,hup,cont),
+  capability net_bind_service,
+  capability net_admin,
+
+  # Allow config directory access
+  /homeassistant/** rw,
+  /config/** rw,
+  /backup/** rw,
+
+  # S6-Overlay
+  /init rix,
+  /bin/** rix,
+  /usr/bin/** rix,
+  /usr/lib/bashio/bashio rix,
+  /usr/local/bin/** rix,
+  /usr/local/lib/** rix,
+  /run/{s6,s6-rc*,service}/** rix,
+  /package/** rix,
+  /command/** rix,
+  /etc/services.d/** rwix,
+  /etc/cont-init.d/** rwix,
+  /etc/cont-finish.d/** rwix,
+  /run/{,**} rwk,
+  /dev/tty rw,
+  /dev/null rixw,
+  /etc/s6-overlay/** rix,
+
+  # Allow Python and dependencies
+  /app/** rwix,
+  /app/static/** rwix,
+  /app/templates/** rwix,
+  /app/src/** rwix,
+  /app/src/agents/** rwix,
+  /app/src/config/** rwix,
+  /app/src/ha/** rwix,
+  /app/src/workflow/** rwix,
+  
+  # Network access for API calls
+  network,
+  network inet tcp,
+  network inet udp,
+
+  @{PROC}/sys/net/** r,
+  
+  # Block dangerous system access
+  deny /sys/** rwklx,
+  deny /proc/sys/** rwklx,
+  deny /etc/shadow rwklx,
+  deny /etc/passwd w,
+  
+  # Allow temp files
+  /tmp/** rw,
+}

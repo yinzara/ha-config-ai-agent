@@ -1,0 +1,25 @@
+# Build configuration for Home Assistant Add-on
+build_from:
+  aarch64: "ghcr.io/home-assistant/aarch64-base-python:3.11-alpine3.21"
+  amd64: "ghcr.io/home-assistant/amd64-base-python:3.11-alpine3.21"
+  armhf: "ghcr.io/home-assistant/armhf-base-python:3.11-alpine3.21"
+  armv7: "ghcr.io/home-assistant/armv7-base-python:3.11-alpine3.21"
+  i386: "ghcr.io/home-assistant/i386-base-python:3.11-alpine3.21"
+
+labels:
+  io.hass.version: "0.3.0"
+  io.hass.type: "addon"
+  io.hass.name: "AI Configuration Agent"
+  io.hass.description: "AI-powered Home Assistant configuration assistant"
+  org.opencontainers.image.title: "AI Configuration Agent"
+  org.opencontainers.image.description: "AI-powered Home Assistant configuration management"
+  org.opencontainers.image.source: "https://github.com/yinzara/ha-config-ai-agent"
+  org.opencontainers.image.licenses: "MIT"
+
+args:
+  LANG: "C.UTF-8"
+  PYTHONUNBUFFERED: "1"
+
+codenotary:
+  signer: yinzara@gmail.com
+  base_image: notary@home-assistant.io

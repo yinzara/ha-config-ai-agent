@@ -1,0 +1,57 @@
+name: "AI Configuration Agent"
+version: "0.1.0"
+slug: "ai-config-agent"
+description: "AI-powered Home Assistant configuration assistant with approval workflow"
+url: "https://github.com/yinzara/ha-config-ai-agent"
+arch:
+  - aarch64
+  - i386
+  - amd64
+  - armhf
+  - armv7
+
+# Startup configuration
+init: false
+startup: application
+boot: auto
+watchdog: "tcp://[HOST]:[PORT:8099]"
+
+codenotary: yinzara@gmail.com
+
+# Ingress configuration (provides security and authentication)
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:robot-outline
+panel_title: "Config Agent"
+
+# Volume mappings - CRITICAL for config access
+map:
+  - type: homeassistant_config
+    read_only: false
+  - type: addon_config
+    read_only: false
+  - type: backup
+    read_only: false
+
+# API access
+homeassistant_api: true
+hassio_api: true
+hassio_role: manager
+auth_api: true
+
+# Security
+apparmor: true
+privileged: []
+
+# User-configurable options
+options:
+  openai_api_url: "https://api.openai.com/v1"
+  openai_api_key: ""
+  openai_model: "gpt-5-mini"
+  log_level: "info"
+
+schema:
+  openai_api_url: url
+  openai_api_key: password?
+  openai_model: str
+  log_level: list(debug|info|warning|error)

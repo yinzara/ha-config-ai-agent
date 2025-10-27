@@ -1,0 +1,23 @@
+# Web framework
+fastapi==0.120.0
+uvicorn[standard]==0.38.0
+jinja2==3.1.6
+
+# OpenAI Agents SDK
+openai-agents==0.4.2
+openai==2.6.1
+
+# Configuration management
+ruamel.yaml==0.18.16
+
+# Home Assistant integration
+aiohttp==3.13.1
+websockets==15.0.1
+
+# State management
+redis==7.0.0
+pydantic==2.12.3
+
+# Utilities
+python-multipart==0.0.20
+requests==2.32.5
