@@ -35,3 +35,7 @@ Moved system prompt into config file as full system prompt in options was breaki
 ## [0.1.5] - 2025-10-28
 
 General bug fixes and improvements.
+
+## [0.1.6] - 2025-10-28
+
+Add prompt caching support for models that support it (currently only Gemini and Claude)

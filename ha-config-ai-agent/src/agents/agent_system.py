@@ -142,19 +142,35 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
         try:
             logger.info(f"Agent streaming user message: {user_message[:100]}...")
 
-            # Build messages list
-            messages = [{"role": "system", "content": self.system_prompt}]
+            # Build messages list with prompt caching support
+            # System prompt with cache control (marks the system prompt for caching)
+            messages = [{
+                "role": "system",
+                "content": self.system_prompt,
+                "cache_control": {"type": "ephemeral"}
+            }]
 
             # Track the starting point for new messages (after history)
             history_length = 1  # system message
             if conversation_history:
-                messages.extend(conversation_history)
+                # Add conversation history
+                # Mark the last message in history for caching if there's substantial history
+                for idx, msg in enumerate(conversation_history):
+                    is_last_history_msg = (idx == len(conversation_history) - 1)
+                    if is_last_history_msg and len(conversation_history) >= 3:
+                        # Cache the conversation history at this breakpoint
+                        msg_with_cache = dict(msg)
+                        msg_with_cache["cache_control"] = {"type": "ephemeral"}
+                        messages.append(msg_with_cache)
+                    else:
+                        messages.append(msg)
                 history_length += len(conversation_history)
 
             # Add current user message
             messages.append({"role": "user", "content": user_message})
 
-            # Define available tools for function calling
+            # Define available tools for function calling with cache control
+            # Mark tools for caching to reduce repeated processing
             tools = [
                 {
                     "type": "function",
@@ -202,7 +218,8 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                             },
                             "required": ["changes"]
                         }
-                    }
+                    },
+                    "cache_control": {"type": "ephemeral"}
                 }
             ]
 
@@ -329,7 +346,7 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                     tool_calls_announced = True
 
                 # Execute each tool call and stream results immediately
-                for tool_call in accumulated_tool_calls:
+                for tool_idx, tool_call in enumerate(accumulated_tool_calls):
                     function_name = tool_call["function"]["name"]
                     function_args = json.loads(tool_call["function"]["arguments"])
 
@@ -367,12 +384,17 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                         result = {"success": False, "error": f"Unknown tool: {function_name}"}
                         logger.error(f"[ITERATION {iteration}] Unknown tool requested: {function_name}")
 
-                    # Add tool result to messages
+                    # Add tool result to messages with cache control on the last tool result
+                    is_last_tool = (tool_idx == len(accumulated_tool_calls) - 1)
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": tool_call["id"],
                         "content": json.dumps(result)
                     }
+                    # Mark the last tool result for caching to preserve full context
+                    if is_last_tool:
+                        tool_message["cache_control"] = {"type": "ephemeral"}
+
                     messages.append(tool_message)
                     new_messages.append(tool_message)
 
@@ -412,220 +434,6 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
             yield {
                 "event": "error",
                 "data": json.dumps({"error": str(e)})
-            }
-
-    async def chat(
-        self,
-        user_message: str,
-        conversation_history: Optional[List[Dict[str, Any]]] = None
-    ) -> Dict[str, Any]:
-        """
-        Process a user message and return agent response (non-streaming version).
-
-        Args:
-            user_message: The user's message/request
-            conversation_history: Optional list of previous messages
-                                Format: [{"role": "user"|"assistant", "content": "..."}]
-
-        Returns:
-            Dict with:
-                - success: bool
-                - response: str (agent's response)
-                - tool_calls: List[Dict] (tools that were called)
-                - proposed_changes: Optional[Dict] (if changes were proposed)
-                - error: Optional[str]
-
-        Example:
-            >>> response = await agent_system.chat("Enable debug logging")
-            >>> print(response['response'])
-        """
-        if not self.client:
-            return {
-                "success": False,
-                "error": "OpenAI API not configured. Please set OPENAI_API_KEY environment variable."
-            }
-
-        try:
-            logger.info(f"Agent processing user message: {user_message[:100]}...")
-
-            # Build messages list
-            messages = [{"role": "system", "content": self.system_prompt}]
-
-            # Track the starting point for new messages (after history)
-            history_length = 1  # system message
-            if conversation_history:
-                messages.extend(conversation_history)
-                history_length += len(conversation_history)
-
-            # Add current user message
-            messages.append({"role": "user", "content": user_message})
-
-            # Define available tools for function calling
-            tools = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "search_config_files",
-                        "description": "Search configuration files (all YAML files + lovelace.yaml, plus individual device/entity/area files if search_pattern matches). Returns individual files like devices/{id}.json, entities/{entity_id}.json, and areas/{area_id}.json for matching items. Devices/entities/areas are ONLY included when search_pattern is provided.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "search_pattern": {
-                                    "type": "string",
-                                    "description": "Optional text to search for in file contents (case-insensitive). Only files containing this text will be returned. Omit to return all files."
-                                }
-                            },
-                            "required": []
-                        }
-                    }
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "propose_config_changes",
-                        "description": "Propose changes to one or more configuration files for user approval. Use this to batch multiple file changes together. First use search_config_files to read files, then provide complete new content for each as YAML strings.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "changes": {
-                                    "type": "array",
-                                    "description": "Array of file changes. Each change must include file_path and new_content.",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "file_path": {
-                                                "type": "string",
-                                                "description": "Relative path to config file (e.g., 'configuration.yaml', 'switches.yaml'). New areas can be specified with 'areas/{area_id}.json' and must include the 'name'"
-                                            },
-                                            "new_content": {
-                                                "type": "string",
-                                                "description": "The complete new content of the file as a valid YAML string. Include all lines - both changed and unchanged."
-                                            }
-                                        },
-                                        "required": ["file_path", "new_content"]
-                                    }
-                                },
-                            },
-                            "required": ["changes"]
-                        }
-                    }
-                }
-            ]
-
-            # Track tool calls and results
-            tool_calls_made = []
-
-            # Loop to handle multiple rounds of tool calls
-            max_iterations = 10
-            iteration = 0
-
-            while iteration < max_iterations:
-                iteration += 1
-                logger.info(f"[ITERATION {iteration}] Calling OpenAI API")
-
-                # Call OpenAI API with function calling
-                response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    tools=tools,
-                    tool_choice="auto"
-                )
-
-                message = response.choices[0].message
-
-                # Check if we have tool calls
-                if not message.tool_calls:
-                    # No tool calls - we have our final response
-                    logger.info(f"[ITERATION {iteration}] No tool calls, final response received")
-                    break
-
-                # We have tool calls - add assistant message to history
-                logger.info(f"[ITERATION {iteration}] Processing {len(message.tool_calls)} tool call(s)")
-                messages.append({
-                    "role": "assistant",
-                    "content": message.content,
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": tc.type,
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments
-                            }
-                        } for tc in message.tool_calls
-                    ]
-                })
-
-                # Execute each tool call
-                for tool_call in message.tool_calls:
-                    function_name = tool_call.function.name
-                    import json
-                    function_args = json.loads(tool_call.function.arguments)
-
-                    logger.info(f"[ITERATION {iteration}] Calling tool: {function_name}")
-
-                    # Execute the tool function
-                    if function_name == "search_config_files":
-                        result = await self.tools.search_config_files(**function_args)
-                        logger.info(f"[ITERATION {iteration}] Tool result: success={result.get('success')}, file_count={result.get('count')}")
-                    elif function_name == "propose_config_changes":
-                        # Validate required parameters
-                        if "changes" not in function_args or not isinstance(function_args["changes"], list):
-                            error_msg = (
-                                "ERROR: propose_config_changes requires a 'changes' parameter with a list of file changes. "
-                                "Each change must have 'file_path' and 'new_content'. "
-                                "You MUST first read files with search_config_files, then provide all modified content. "
-                                f"Received args: {function_args}"
-                            )
-                            logger.error(error_msg)
-                            result = {
-                                "success": False,
-                                "error": error_msg
-                            }
-                        else:
-                            result = await self.tools.propose_config_changes(**function_args)
-                            logger.info(f"[ITERATION {iteration}] Tool result: success={result.get('success')}, changeset_id={result.get('changeset_id')}")
-                    else:
-                        result = {"success": False, "error": f"Unknown tool: {function_name}"}
-                        logger.error(f"[ITERATION {iteration}] Unknown tool requested: {function_name}")
-
-                    tool_calls_made.append({
-                        "function": function_name,
-                        "arguments": function_args,
-                        "result": result
-                    })
-
-                    # Add tool result to messages for next iteration
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(result)
-                    })
-
-            # Extract final message
-            if iteration >= max_iterations:
-                logger.warning(f"Hit max iterations ({max_iterations}), stopping")
-                final_message = "Maximum iteration limit reached. Please try breaking down your request."
-            else:
-                final_message = message.content or ""
-
-            logger.info(f"Agent completed after {iteration} iteration(s) with {len(tool_calls_made)} total tool call(s)")
-
-            # Extract only the new messages generated during this request
-            # (excluding system message and input history)
-            new_messages = messages[history_length:]
-
-            return {
-                "success": True,
-                "response": final_message,
-                "messages": new_messages
-            }
-
-        except Exception as e:
-            logger.error(f"Agent error: {e}", exc_info=True)
-            return {
-                "success": False,
-                "error": f"Error processing request: {str(e)}"
             }
 
     def store_changeset(self, changeset_data: Dict[str, Any]) -> str:
