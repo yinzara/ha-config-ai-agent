@@ -105,7 +105,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="AI Configuration Agent",
     description="AI-powered Home Assistant configuration management",
-    version="0.1.6",
+    version="0.1.7",
     lifespan=lifespan
 )
 
@@ -134,7 +134,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": "0.1.6",
+        "version": "0.1.7",
         "config_manager_ready": config_manager is not None,
         "agent_system_ready": agent_system is not None,
         "openai_configured": bool(os.getenv('OPENAI_API_KEY'))
@@ -146,7 +146,7 @@ async def index(request: Request):
     """Serve main interface."""
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "version": "0.1.6"
+        "version": "0.1.7"
     })
 
 @app.websocket("/ws/chat")

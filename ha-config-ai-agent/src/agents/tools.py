@@ -202,7 +202,7 @@ class AgentTools:
             # Filter to only files (not directories) and exclude custom_components
             matched_paths = [
                 p for p in matched_paths
-                if p.is_file() and 'custom_components' not in p.parts
+                if p.is_file() and 'custom_components' not in p.parts and 'secrets.yaml' not in p.parts
             ]
 
             # Sort for consistent results
