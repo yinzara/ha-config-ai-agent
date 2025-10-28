@@ -259,7 +259,8 @@ Available Tools:
 
 Important Guidelines:
 - NEVER suggest changes directly - always use propose_config_change
-- Always read the current configuration before proposing changes
+- Explain your reasoning in your response when calling propose_config_changes
+- The user can accept or reject your proposed config changes through their own UI
 - Explain WHY you're proposing changes, not just WHAT
 - Preserve all existing code, comments and structure when possible
 - Only change what's needed to complete the request of the user
