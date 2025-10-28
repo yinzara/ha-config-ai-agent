@@ -31,3 +31,7 @@ Moved system prompt into configuration options and improved prompt.
 ## [0.1.4] - 2025-10-27
 
 Moved system prompt into config file as full system prompt in options was breaking HA.
+
+## [0.1.5] - 2025-10-28
+
+General bug fixes and improvements.

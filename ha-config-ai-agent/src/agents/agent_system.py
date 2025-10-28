@@ -16,7 +16,6 @@ class Changeset:
     """Represents a proposed set of configuration changes."""
     changeset_id: str
     file_changes: List[Dict[str, str]]  # List of {file_path, new_content}
-    reason: str
     created_at: str
     expires_at: str
 
@@ -88,9 +87,9 @@ Available Tools:
 - propose_config_changes: Propose changes for user approval
 
 Important Guidelines:
-- NEVER suggest changes directly - always use propose_config_change
+- NEVER suggest changes directly - always use propose_config_changes
 - Always read the current configuration before proposing changes
-- Explain WHY you're proposing changes, not just WHAT
+- Explain your reasoning in your response before calling propose_config_changes
 - Preserve all existing code, comments and structure when possible
 - Only change what's needed to complete the request of the user
 - Validate that changes align with Home Assistant documentation
@@ -200,12 +199,8 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                                         "required": ["file_path", "new_content"]
                                     }
                                 },
-                                "reason": {
-                                    "type": "string",
-                                    "description": "Clear explanation of what changed and why these changes are needed (applies to all files)"
-                                }
                             },
-                            "required": ["changes", "reason"]
+                            "required": ["changes"]
                         }
                     }
                 }
@@ -510,12 +505,8 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                                         "required": ["file_path", "new_content"]
                                     }
                                 },
-                                "reason": {
-                                    "type": "string",
-                                    "description": "Clear explanation of what changed and why these changes are needed (applies to all files)"
-                                }
                             },
-                            "required": ["changes", "reason"]
+                            "required": ["changes"]
                         }
                     }
                 }
@@ -642,7 +633,7 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
         Store a changeset for later approval.
 
         Args:
-            changeset_data: Dictionary with file_changes, reason, and changeset_id
+            changeset_data: Dictionary with file_changes and changeset_id
 
         Returns:
             changeset_id
@@ -654,7 +645,6 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
         changeset = Changeset(
             changeset_id=changeset_id,
             file_changes=changeset_data['file_changes'],
-            reason=changeset_data['reason'],
             created_at=now.isoformat(),
             expires_at=(now + timedelta(hours=1)).isoformat()
         )
@@ -719,6 +709,7 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
             applied_files = []
             failed_files = []
 
+            # Step 1: Write all files first (without validation)
             for file_change in changeset.file_changes:
                 file_path = file_change['file_path']
                 new_content = file_change['new_content']
@@ -727,7 +718,6 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                     await self.config_manager.write_file_raw(
                         file_path=file_path,
                         content=new_content,
-                        validate=validate,
                         create_backup=True
                     )
                     applied_files.append(file_path)
@@ -736,12 +726,29 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                     logger.error(f"Failed to apply changes to {file_path}: {e}")
                     failed_files.append({"file_path": file_path, "error": str(e)})
 
+            # Step 2: If validation requested and files were written, validate all at once
+            validation_failed = False
+            if validate and applied_files:
+                try:
+                    logger.info("Validating configuration after writing all files...")
+                    await self.config_manager.validate_config()
+                    logger.info("Configuration validation passed")
+                except Exception as e:
+                    logger.error(f"Configuration validation failed: {e}")
+                    validation_failed = True
+                    # Note: We don't rollback here because backups were created
+                    # Users can manually restore from backups if needed
+                    failed_files.append({
+                        "file_path": "validation",
+                        "error": f"Configuration validation failed: {str(e)}"
+                    })
+
             # Remove changeset from pending
             del self.pending_changesets[change_id]
 
-            # Reload Home Assistant configuration after successful changes
+            # Reload Home Assistant configuration after successful changes (only if validation passed)
             reload_success = False
-            if applied_files:
+            if applied_files and not validation_failed:
                 try:
                     from ..ha.ha_websocket import reload_homeassistant_config
 

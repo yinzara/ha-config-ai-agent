@@ -164,8 +164,8 @@ async function sendMessage() {
                     });
                     currentMessageContent = '';
 
-                    // Show tool execution indicator summary
-                    addSystemMessage(`🔧 Calling ${data.tool_calls.length} tool(s): ${data.tool_calls.map(tc => tc.function.name).join(', ')}`);
+                    // Show tool execution indicator summary with expandable arguments
+                    addToolCallMessage(data.tool_calls);
 
                 } else if (name === 'tool_start') {
                     addSystemMessage(`▶️ Executing: ${data.function}...`);
@@ -182,8 +182,7 @@ async function sendMessage() {
                         const changesetData = {
                             changeset_id: data.result.changeset_id,
                             total_files: data.result.total_files,
-                            files: data.result.files,
-                            reason: data.result.reason
+                            files: data.result.files
                         };
                         const assistantMsg = conversationHistory
                             .slice()
@@ -423,6 +422,64 @@ function addSystemMessage(content) {
     scrollToBottom();
 }
 
+// Add tool call message with expandable arguments
+function addToolCallMessage(toolCalls) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message tool-call-message';
+
+    const toolCallId = 'toolcall-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    const toolNames = toolCalls.map(tc => tc.function.name).join(', ');
+
+    let html = '<div class="tool-call-content">';
+    html += `<div class="tool-call-header">`;
+    html += `<span class="tool-call-icon">🔧</span>`;
+    html += `<span class="tool-call-summary">Calling ${toolCalls.length} tool(s): ${escapeHtml(toolNames)}</span>`;
+    html += `<button class="tool-call-toggle" onclick="toggleToolCall('${toolCallId}')">▼ Arguments</button>`;
+    html += `</div>`;
+    html += `<div class="tool-call-details" id="${toolCallId}" style="display: none;">`;
+
+    // Show each tool call with its arguments
+    for (let i = 0; i < toolCalls.length; i++) {
+        const tc = toolCalls[i];
+        html += '<div class="tool-call-item">';
+        html += `<div class="tool-call-item-header"><strong>${i + 1}. ${escapeHtml(tc.function.name)}</strong></div>`;
+
+        // Parse and format arguments
+        let args;
+        try {
+            args = typeof tc.function.arguments === 'string'
+                ? JSON.parse(tc.function.arguments)
+                : tc.function.arguments;
+            html += `<pre><code>${escapeHtml(JSON.stringify(args, null, 2))}</code></pre>`;
+        } catch (e) {
+            html += `<pre><code>${escapeHtml(tc.function.arguments)}</code></pre>`;
+        }
+
+        html += '</div>';
+    }
+
+    html += `</div>`;
+    html += '</div>';
+
+    messageDiv.innerHTML = html;
+    chatMessages.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+// Toggle tool call details
+window.toggleToolCall = function(toolCallId) {
+    const detailsDiv = document.getElementById(toolCallId);
+    const button = detailsDiv.previousElementSibling.querySelector('.tool-call-toggle');
+
+    if (detailsDiv.style.display === 'none') {
+        detailsDiv.style.display = 'block';
+        button.textContent = '▲ Arguments';
+    } else {
+        detailsDiv.style.display = 'none';
+        button.textContent = '▼ Arguments';
+    }
+};
+
 // Add tool result message with expandable details
 function addToolResultMessage(functionName, result) {
     const messageDiv = document.createElement('div');
@@ -519,10 +576,6 @@ function addApprovalCard(changesetData) {
     html += '</div>';
     html += '</div>';
 
-    if (changesetData.reason) {
-        html += `<div class="approval-reason">${escapeHtml(changesetData.reason)}</div>`;
-    }
-
     html += '<div class="approval-card-actions">';
     html += `<button class="btn btn-view" onclick="viewChanges('${changesetData.changeset_id}')">👁️ View Changes</button>`;
     html += '</div>';
@@ -562,9 +615,28 @@ window.viewChanges = function(changesetId) {
 
 // Show diff modal
 function showDiffModal(changesetData) {
+    // Reset buttons to enabled state for new changeset
+    const modalFooter = document.querySelector('.modal-footer');
+    if (modalFooter) {
+        const approveBtn = modalFooter.querySelector('.btn-success');
+        const rejectBtn = modalFooter.querySelector('.btn-danger');
+        const closeBtn = modalFooter.querySelector('.btn-secondary');
+
+        if (approveBtn) {
+            approveBtn.disabled = false;
+            approveBtn.textContent = '✓ Approve & Apply';
+        }
+        if (rejectBtn) {
+            rejectBtn.disabled = false;
+            rejectBtn.textContent = '✗ Reject';
+        }
+        if (closeBtn) {
+            closeBtn.disabled = false;
+        }
+    }
+
     let html = '<div class="diff-header">';
     html += `<p><strong>Changeset ID:</strong> ${changesetData.changeset_id}</p>`;
-    html += `<p><strong>Reason:</strong> ${escapeHtml(changesetData.reason)}</p>`;
     html += `<p><strong>Files:</strong> ${changesetData.total_files}</p>`;
     html += '</div>';
 

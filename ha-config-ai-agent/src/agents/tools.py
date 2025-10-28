@@ -376,8 +376,7 @@ class AgentTools:
 
     async def propose_config_changes(
         self,
-        changes: List[Dict[str, str]],
-        reason: str
+        changes: List[Dict[str, str]]
     ) -> Dict[str, Any]:
         """
         Propose changes to one or more configuration files using new content.
@@ -390,13 +389,11 @@ class AgentTools:
             changes: List of change objects, each with:
                 - file_path: str - Relative path to config file (e.g., 'configuration.yaml')
                 - new_content: str - The complete new content of the file as a YAML string
-            reason: Clear explanation of why these changes are needed (applies to all files)
 
         Returns:
             Dict with:
                 - success: bool
                 - changes: List[Dict] - Details of each proposed change with change_id
-                - reason: str
                 - total_files: int
                 - error: Optional[str]
 
@@ -411,8 +408,7 @@ class AgentTools:
             ...             "file_path": "automations.yaml",
             ...             "new_content": "- alias: Test\\n  trigger: []\\n"
             ...         }
-            ...     ],
-            ...     reason="Enable debug logging and update automations"
+            ...     ]
             ... )
 
         Workflow:
@@ -422,7 +418,6 @@ class AgentTools:
         """
         try:
             logger.info(f"Agent proposing changes to {len(changes)} file(s)")
-            logger.info(f"Reason: {reason}")
 
             from ruamel.yaml import YAML
             from io import StringIO
@@ -509,7 +504,11 @@ class AgentTools:
                             logger.info(f"Area {area_id} will be created with name: {proposed_area.get('name')}")
                     else:
                         # Read current config as raw text for regular files
-                        current_content = await self.config_manager.read_file_raw(file_path)
+                        # Allow missing files (will be created as new files)
+                        current_content = await self.config_manager.read_file_raw(file_path, allow_missing=True)
+                        if current_content is None:
+                            current_content = ""  # Empty content for new files
+                            logger.info(f"File {file_path} will be created as a new file")
 
                     # Validate the new content based on file type
                     if file_path.endswith('.json'):
@@ -562,8 +561,7 @@ class AgentTools:
                 return {
                     "success": False,
                     "error": f"All {len(errors)} file(s) failed to process",
-                    "errors": errors,
-                    "reason": reason
+                    "errors": errors
                 }
 
             # Create a single changeset with all file changes
@@ -584,15 +582,13 @@ class AgentTools:
             if self.agent_system:
                 changeset_id = self.agent_system.store_changeset({
                     "changeset_id": changeset_id,
-                    "file_changes": stored_changes,
-                    "reason": reason
+                    "file_changes": stored_changes
                 })
 
             return {
                 "success": True,
                 "changeset_id": changeset_id,
                 "files": [fc["file_path"] for fc in file_changes],
-                "reason": reason,
                 "total_files": len(file_changes),
                 "expires_at": expires_at,
                 "errors": errors if errors else None,
@@ -605,7 +601,6 @@ class AgentTools:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return {
                 "success": False,
-                "error": f"Error processing changes: {str(e)}",
-                "reason": reason
+                "error": f"Error processing changes: {str(e)}"
             }
 

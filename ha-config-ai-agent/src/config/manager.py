@@ -102,22 +102,26 @@ class ConfigurationManager:
 
         return full_path
 
-    async def read_file_raw(self, file_path: str) -> str:
+    async def read_file_raw(self, file_path: str, allow_missing: bool = False) -> Optional[str]:
         """
         Read a configuration file as raw text without parsing.
 
         Args:
             file_path: Relative path to config file (e.g., "configuration.yaml")
+            allow_missing: If True, return None for missing files instead of raising error
 
         Returns:
-            Raw file content as string
+            Raw file content as string, or None if file doesn't exist and allow_missing=True
 
         Raises:
-            ConfigurationError: If file cannot be read
+            ConfigurationError: If file cannot be read (and allow_missing=False for missing files)
         """
         full_path = self._validate_path(file_path)
 
         if not full_path.exists():
+            if allow_missing:
+                logger.debug(f"File not found (allowed): {file_path}")
+                return None
             raise ConfigurationError(f"File not found: {file_path}")
 
         try:
@@ -175,7 +179,6 @@ class ConfigurationManager:
         self,
         file_path: str,
         content: str,
-        validate: bool = True,
         create_backup: bool = True
     ) -> None:
         """
@@ -188,20 +191,20 @@ class ConfigurationManager:
         1. Validate path
         2. Create backup if file exists
         3. Write to temporary file
-        4. Validate configuration if requested
-        5. Atomically move temp file to target
-        6. Rotate old backups
-        7. Rollback on any failure
+        4. Atomically move temp file to target
+        5. Rotate old backups
+        6. Rollback on any failure
+
+        Note: Validation should be done separately after all files are written
+        using the validate_config() method.
 
         Args:
             file_path: Relative path to config file
             content: Raw string content to write
-            validate: Whether to run HA validation after write
             create_backup: Whether to backup existing file
 
         Raises:
-            ConfigurationError: If write or validation fails
-            ValidationError: If HA validation fails (will auto-rollback)
+            ConfigurationError: If write fails
         """
         # Handle virtual files (devices, entities, areas)
         if file_path.startswith("devices/"):
@@ -221,41 +224,35 @@ class ConfigurationManager:
         full_path = self._validate_path(file_path)
         backup_path = None
         temp_path = full_path.with_suffix(f"{full_path.suffix}.tmp")
+        is_new_file = not full_path.exists()
 
         try:
             # Step 1: Create backup if file exists
             if create_backup and full_path.exists():
                 backup_path = self._create_backup(full_path)
 
+            # Step 1b: Ensure parent directory exists for new files
+            if is_new_file:
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Creating new config file: {file_path}")
+            else:
+                logger.info(f"Writing raw config file: {file_path}")
+
             # Step 2: Write to temporary file
-            logger.info(f"Writing raw config file: {file_path}")
             with open(temp_path, 'w', encoding='utf-8') as f:
                 f.write(content)
 
-            # Step 3: Validate configuration if requested
-            if validate:
-                # Move temp to target for validation
-                shutil.move(str(temp_path), str(full_path))
+            # Step 3: Atomically move temp file to target
+            shutil.move(str(temp_path), str(full_path))
 
-                # Run HA validation
-                await self._validate_config()
-            else:
-                # Just move without validation
-                shutil.move(str(temp_path), str(full_path))
-
-            # Step 4: Rotate old backups
-            if create_backup:
+            # Step 4: Rotate old backups (only for existing files)
+            if create_backup and not is_new_file:
                 self._rotate_backups(full_path.stem)
 
-            logger.info(f"Successfully wrote raw file: {file_path}")
-
-        except ValidationError:
-            # Rollback on validation failure
-            logger.error(f"Validation failed, rolling back {file_path}")
-            if backup_path and backup_path.exists():
-                shutil.copy2(backup_path, full_path)
-                logger.info(f"Restored from backup: {backup_path.name}")
-            raise
+            if is_new_file:
+                logger.info(f"Successfully created new file: {file_path}")
+            else:
+                logger.info(f"Successfully wrote raw file: {file_path}")
 
         except Exception as e:
             # Cleanup temp file on any error
@@ -263,7 +260,13 @@ class ConfigurationManager:
                 temp_path.unlink()
 
             # Rollback on write failure
-            if backup_path and backup_path.exists():
+            if is_new_file:
+                # Remove the newly created file
+                if full_path.exists():
+                    full_path.unlink()
+                    logger.info(f"Removed newly created file after error: {file_path}")
+            elif backup_path and backup_path.exists():
+                # Restore from backup for existing files
                 shutil.copy2(backup_path, full_path)
                 logger.info(f"Restored from backup after error: {backup_path.name}")
 
@@ -392,7 +395,7 @@ class ConfigurationManager:
         finally:
             await ws_client.close()
 
-    async def _validate_config(self) -> None:
+    async def validate_config(self) -> None:
         """
         Run Home Assistant configuration validation using RESTful API.
 
@@ -489,15 +492,15 @@ class ConfigurationManager:
 
     async def restore_backup(
         self,
-        backup_name: str,
-        validate: bool = True
+        backup_name: str
     ) -> None:
         """
         Restore a configuration file from a backup.
 
+        Note: Validation should be done separately after restore using validate_config() method.
+
         Args:
             backup_name: Name of backup file to restore
-            validate: Whether to validate after restore
 
         Raises:
             ConfigurationError: If backup not found or restore fails
@@ -531,18 +534,8 @@ class ConfigurationManager:
             # Copy backup to original location
             shutil.copy2(backup_path, original_path)
 
-            # Validate if requested
-            if validate:
-                await self._validate_config()
-
             logger.info(f"Successfully restored: {original_name}")
 
-        except ValidationError:
-            # Rollback restore on validation failure
-            if temp_backup and temp_backup.exists():
-                shutil.copy2(temp_backup, original_path)
-                logger.info("Restore rolled back due to validation failure")
-            raise
         except Exception as e:
             # Rollback on any error
             if temp_backup and temp_backup.exists():
