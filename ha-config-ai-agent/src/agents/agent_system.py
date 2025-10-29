@@ -57,7 +57,14 @@ class AgentSystem:
             )
 
         self.model = os.getenv('OPENAI_MODEL', 'gpt-4o')
+
+        # Get temperature from environment variable, use None if not specified
+        temperature_str = os.getenv('TEMPERATURE')
+        self.temperature = float(temperature_str) if temperature_str else None
+
         logger.info(f"AgentSystem initialized with model: {self.model}")
+        if self.temperature is not None:
+            logger.info(f"Temperature: {self.temperature}")
 
         # In-memory storage for pending changesets
         self.pending_changesets: Dict[str, Changeset] = {}
@@ -236,13 +243,19 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                 logger.info(f"[ITERATION {iteration}] Calling OpenAI streaming API")
 
                 # Call OpenAI API with streaming
-                stream = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    tools=tools,
-                    tool_choice="auto",
-                    stream=True
-                )
+                api_params = {
+                    "model": self.model,
+                    "messages": messages,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "stream": True
+                }
+
+                # Add temperature if specified
+                if self.temperature is not None:
+                    api_params["temperature"] = self.temperature
+
+                stream = await self.client.chat.completions.create(**api_params)
 
                 # Accumulate the streaming response
                 accumulated_content = ""

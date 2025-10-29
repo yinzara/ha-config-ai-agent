@@ -44,6 +44,10 @@ Add prompt caching support for models that support it (currently only Gemini and
 
 Prevent leaking secrets to LLMs
 
-## [0.1.7] - 2025-10-28
+## [0.1.8] - 2025-10-28
 
 Import and export conversation history
+
+## [0.1.9] - 2025-10-28
+
+Added configurable temperature parameter for LLM calls. You can now specify the temperature (0.0-2.0) in the add-on configuration to control the randomness of the AI's responses. When not specified, the LLM provider's default temperature is used

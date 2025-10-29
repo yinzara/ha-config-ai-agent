@@ -13,6 +13,8 @@ import json as json_lib
 from .config import ConfigurationManager
 from .agents import AgentSystem
 
+version = "0.1.9"
+
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'info').upper()
 logging.basicConfig(
@@ -105,7 +107,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="AI Configuration Agent",
     description="AI-powered Home Assistant configuration management",
-    version="0.1.8",
+    version=version,
     lifespan=lifespan
 )
 
@@ -134,7 +136,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": "0.1.8",
+        "version": version,
         "config_manager_ready": config_manager is not None,
         "agent_system_ready": agent_system is not None,
         "openai_configured": bool(os.getenv('OPENAI_API_KEY'))
@@ -146,7 +148,7 @@ async def index(request: Request):
     """Serve main interface."""
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "version": "0.1.8"
+        "version": version
     })
 
 @app.websocket("/ws/chat")
