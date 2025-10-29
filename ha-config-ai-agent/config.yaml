@@ -1,5 +1,5 @@
 name: "AI Configuration Agent"
-version: "0.1.7"
+version: "0.1.8"
 slug: "ai-config-agent"
 description: "AI-powered Home Assistant configuration assistant with approval workflow"
 url: "https://github.com/yinzara/ha-config-ai-agent"

@@ -43,3 +43,7 @@ Add prompt caching support for models that support it (currently only Gemini and
 ## [0.1.7] - 2025-10-28
 
 Prevent leaking secrets to LLMs
+
+## [0.1.7] - 2025-10-28
+
+Import and export conversation history

@@ -57,6 +57,33 @@ header h1 {
     gap: 10px;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn-icon {
+    background: rgba(3, 169, 244, 0.2);
+    border: 1px solid var(--primary-color);
+    color: var(--text-color);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-icon:hover {
+    background: rgba(3, 169, 244, 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(3, 169, 244, 0.3);
+}
+
+.btn-icon:active {
+    transform: translateY(0);
+}
+
 .version-badge {
     background: var(--primary-color);
     color: white;
@@ -1018,8 +1045,24 @@ footer {
 
 /* Responsive Design */
 @media (max-width: 768px) {
+    header {
+        flex-wrap: wrap;
+    }
+
     header h1 {
         font-size: 1.2rem;
+        width: 100%;
+        margin-bottom: 10px;
+    }
+
+    .header-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .btn-icon {
+        font-size: 1rem;
+        padding: 6px 12px;
     }
 
     .message {

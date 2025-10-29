@@ -14,7 +14,12 @@
     <div class="container">
         <header>
             <h1><img src="static/images/icon.png" width="64" height="64"/> AI Configuration Agent</h1>
-            <span class="version-badge">{{ version }}</span>
+            <div class="header-actions">
+                <button id="importBtn" class="btn btn-icon" title="Import Conversation">📥</button>
+                <button id="exportBtn" class="btn btn-icon" title="Export Conversation">📤</button>
+                <span class="version-badge">{{ version }}</span>
+            </div>
+            <input type="file" id="importFileInput" accept=".json" style="display: none;">
         </header>
 
         <main>

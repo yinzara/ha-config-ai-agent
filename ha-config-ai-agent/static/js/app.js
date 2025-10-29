@@ -10,7 +10,7 @@ let currentChangesetData = null;
 let toolCallIterationsShown = new Set();
 
 // DOM elements
-let chatMessages, messageInput, sendBtn, diffModal, diffContent;
+let chatMessages, messageInput, sendBtn, diffModal, diffContent, exportBtn, importBtn, importFileInput;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -22,6 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
     sendBtn = document.getElementById('sendBtn');
     diffModal = document.getElementById('diffModal');
     diffContent = document.getElementById('diffContent');
+    exportBtn = document.getElementById('exportBtn');
+    importBtn = document.getElementById('importBtn');
+    importFileInput = document.getElementById('importFileInput');
 
     // Set up event listeners
     sendBtn.addEventListener('click', sendMessage);
@@ -31,6 +34,11 @@ document.addEventListener('DOMContentLoaded', () => {
             sendMessage();
         }
     });
+
+    // Export/Import listeners
+    exportBtn.addEventListener('click', exportConversation);
+    importBtn.addEventListener('click', () => importFileInput.click());
+    importFileInput.addEventListener('change', importConversation);
 
     // Check health
     checkHealth();
@@ -929,4 +937,93 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Export conversation to JSON file
+function exportConversation() {
+    if (conversationHistory.length === 0) {
+        addSystemMessage('⚠️ No conversation to export.');
+        return;
+    }
+
+    const exportData = {
+        version: '1.0',
+        timestamp: new Date().toISOString(),
+        conversationHistory: conversationHistory,
+        messageCount: conversationHistory.length
+    };
+
+    const jsonString = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ha-config-agent-conversation-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    addSystemMessage('✅ Conversation exported successfully.');
+}
+
+// Import conversation from JSON file
+function importConversation(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const importData = JSON.parse(e.target.result);
+
+            // Validate import data structure
+            if (!importData.conversationHistory || !Array.isArray(importData.conversationHistory)) {
+                throw new Error('Invalid conversation file format.');
+            }
+
+            // Clear current conversation
+            conversationHistory = [];
+            chatMessages.innerHTML = '';
+
+            // Restore conversation history
+            conversationHistory = importData.conversationHistory;
+
+            // Rebuild UI from history
+            for (const msg of conversationHistory) {
+                if (msg.role === 'user') {
+                    addUserMessage(msg.content);
+                } else if (msg.role === 'assistant') {
+                    if (msg.content) {
+                        addAssistantMessage(msg.content);
+                    }
+                    // Handle tool calls if present
+                    if (msg.tool_calls) {
+                        addToolCallMessage(msg.tool_calls);
+                    }
+                } else if (msg.role === 'tool') {
+                    // Tool messages are typically not displayed individually in UI
+                    // They're shown via tool result messages
+                }
+            }
+
+            addSystemMessage(`✅ Conversation imported successfully. ${importData.messageCount} messages restored.`);
+
+            // Reset file input
+            event.target.value = '';
+
+        } catch (error) {
+            console.error('Import error:', error);
+            addSystemMessage(`❌ Failed to import conversation: ${error.message}`);
+            event.target.value = '';
+        }
+    };
+
+    reader.onerror = function() {
+        addSystemMessage('❌ Failed to read file.');
+        event.target.value = '';
+    };
+
+    reader.readAsText(file);
 }
