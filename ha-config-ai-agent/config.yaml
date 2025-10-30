@@ -50,6 +50,7 @@ options:
   openai_model: "google/gemini-2.5-flash" # Best model for speed and price
   log_level: "info"
   system_prompt_file: ""
+  temperature: ""
 
 schema:
   openai_api_url: url
@@ -57,4 +58,4 @@ schema:
   openai_model: str
   log_level: list(debug|info|warning|error)
   system_prompt_file: str?
-  temperature: float(0.0,2.0)?
+  temperature: str?
