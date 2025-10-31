@@ -13,7 +13,7 @@ import json as json_lib
 from .config import ConfigurationManager
 from .agents import AgentSystem
 
-version = "0.1.9"
+version = ""
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'info').upper()
@@ -91,7 +91,17 @@ async def lifespan(_: FastAPI):
                 except Exception as e:
                     logger.error(f"Error reading system prompt file: {e}, using default")
 
-            agent_system = AgentSystem(config_manager, system_prompt=system_prompt)
+            # Read enable_cache_control setting
+            enable_cache_control_str = os.getenv('ENABLE_CACHE_CONTROL', 'false').lower()
+            enable_cache_control = enable_cache_control_str in ('true', '1', 'yes')
+
+            # Read usage_tracking setting
+            usage_tracking = os.getenv('USAGE_TRACKING', 'stream_options').lower()
+            if usage_tracking not in ('stream_options', 'usage', 'disabled'):
+                logger.warning(f"Invalid usage_tracking value '{usage_tracking}', defaulting to 'stream_options'")
+                usage_tracking = 'stream_options'
+
+            agent_system = AgentSystem(config_manager, system_prompt=system_prompt, enable_cache_control=enable_cache_control, usage_tracking=usage_tracking)
             logger.info("Agent system initialized")
         else:
             logger.warning("Agent system not initialized - config manager unavailable")

@@ -51,3 +51,7 @@ Import and export conversation history
 ## [0.1.9] - 2025-10-28
 
 Added configurable temperature parameter for LLM calls. You can now specify the temperature (0.0-2.0) in the add-on configuration to control the randomness of the AI's responses. When not specified, the LLM provider's default temperature is used
+
+## [0.1.10] - 2025-10-30
+
+Made cache control configurable and added token usage tracking

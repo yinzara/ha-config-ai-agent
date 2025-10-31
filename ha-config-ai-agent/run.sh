@@ -10,6 +10,8 @@ export OPENAI_MODEL=$(bashio::config 'openai_model' ${OPENAI_MODEL:-})
 export LOG_LEVEL=$(bashio::config 'log_level' ${LOG_LEVEL:-debug})
 export SYSTEM_PROMPT_FILE=$(bashio::config 'system_prompt_file' ${SYSTEM_PROMPT_FILE:-})
 export TEMPERATURE=$(bashio::config 'temperature' ${TEMPERATURE:-})
+export ENABLE_CACHE_CONTROL=$(bashio::config 'enable_cache_control' ${ENABLE_CACHE_CONTROL:-false})
+export USAGE_TRACKING=$(bashio::config 'usage_tracking' ${USAGE_TRACKING:-stream_options})
 
 # Home Assistant configuration
 export HA_CONFIG_DIR="/homeassistant"

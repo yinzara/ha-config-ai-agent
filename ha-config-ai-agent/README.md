@@ -27,6 +27,7 @@ AI Configuration Agent brings conversational AI to your Home Assistant configura
 * 🔌 **Flexible AI Providers** - OpenAI, OpenRouter, Ollama, Azure, or any OpenAI-compatible API
 * 📝 **Configuration Management** - Automations, scripts, Lovelace, devices, entities, and areas
 * 🔄 **Auto-Reload** - Home Assistant configuration reloads automatically after changes
+* 📈 **Token Usage Tracking** - Real-time display of cumulative input/output/cached tokens in the footer
 
 ## Configuration
 
@@ -39,22 +40,26 @@ openai_api_key: "sk-your-openai-key-here"
 
 **Full Configuration:**
 ```yaml
-openai_api_url: "https://api.openai.com/v1"
-openai_api_key: "sk-your-api-key-here"
-openai_model: "gpt-5-mini"
+openai_api_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+openai_api_key: "your-google-api-key-here"
+openai_model: "gemini-2.5-flash"
 log_level: "info"
 system_prompt_file: ""  # Optional: Custom system prompt file path
+temperature: ""  # Optional: Model temperature (0.0-2.0, empty=default)
+enable_cache_control: false  # Enable prompt caching (Anthropic Claude only)
+usage_tracking: "stream_options"  # Token usage method: stream_options, usage, or disabled
 ```
 
 ### Alternative AI Providers
 
 <details>
-<summary><b>OpenRouter</b> (100+ models)</summary>
+<summary><b>OpenAI</b> (GPT-5, GPT-4o)</summary>
 
 ```yaml
-openai_api_url: "https://openrouter.ai/api/v1"
-openai_api_key: "sk-or-v1-your-key"
-openai_model: "anthropic/claude-3.5-sonnet"
+openai_api_url: "https://api.openai.com/v1"
+openai_api_key: "sk-proj-your-key-here"
+openai_model: "gpt-4o"
+usage_tracking: "stream_options"
 ```
 </details>
 
@@ -63,8 +68,21 @@ openai_model: "anthropic/claude-3.5-sonnet"
 
 ```yaml
 openai_api_url: "https://api.anthropic.com/v1/"
-openai_api_key: "sk-1712328"
-openai_model: "claude-sonnet-4-5"
+openai_api_key: "sk-ant-your-key"
+openai_model: "claude-4-5-haiku
+enable_cache_control: true
+usage_tracking: "usage"
+```
+</details>
+
+<details>
+<summary><b>OpenRouter</b> (100+ models)</summary>
+
+```yaml
+openai_api_url: "https://openrouter.ai/api/v1"
+openai_api_key: "sk-or-v1-your-key"
+openai_model: "anthropic/claude-3.5-sonnet"
+usage_tracking: "usage"
 ```
 </details>
 <details>

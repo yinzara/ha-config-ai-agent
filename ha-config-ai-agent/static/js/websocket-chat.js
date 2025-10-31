@@ -130,6 +130,15 @@ function handleWebSocketMessage(message) {
             currentMessageContent = '';
             currentAssistantMessage = null;
 
+            // Update token counter if usage data is available
+            if (data.usage) {
+                updateTokenCounter(
+                    data.usage.input_tokens || 0,
+                    data.usage.output_tokens || 0,
+                    data.usage.cached_tokens || 0
+                );
+            }
+
         } else if (eventType === 'tool_call') {
             // Finalize current message if any
             if (currentAssistantMessage) {
@@ -224,6 +233,15 @@ function handleWebSocketMessage(message) {
 
         } else if (eventType === 'complete') {
             console.log('Stream complete:', data);
+
+            // Update token counter with final totals
+            if (data.usage) {
+                updateTokenCounter(
+                    data.usage.input_tokens || 0,
+                    data.usage.output_tokens || 0,
+                    data.usage.cached_tokens || 0
+                );
+            }
 
             // Final cleanup
             if (loadingIndicator && loadingIndicator.parentNode) {

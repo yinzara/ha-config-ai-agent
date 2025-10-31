@@ -34,13 +34,18 @@ class AgentSystem:
     - Explaining configuration decisions
     """
 
-    def __init__(self, config_manager: ConfigurationManager, system_prompt: Optional[str] = None):
+    def __init__(self, config_manager: ConfigurationManager, system_prompt: Optional[str] = None, enable_cache_control: bool = False, usage_tracking: str = 'stream_options'):
         """
         Initialize the agent system.
 
         Args:
             config_manager: ConfigurationManager for file operations
             system_prompt: Optional custom system prompt. If not provided, uses default.
+            enable_cache_control: Whether to enable cache control for API calls (default: False)
+            usage_tracking: How to request usage tracking from the API:
+                - 'stream_options': Use stream_options.include_usage (OpenAI format)
+                - 'usage': Use usage.include (alternative format)
+                - 'disabled': Don't request usage tracking
         """
         self.config_manager = config_manager
         self.tools = AgentTools(config_manager, agent_system=self)
@@ -62,9 +67,17 @@ class AgentSystem:
         temperature_str = os.getenv('TEMPERATURE')
         self.temperature = float(temperature_str) if temperature_str else None
 
+        # Store cache control setting
+        self.enable_cache_control = enable_cache_control
+
+        # Store usage tracking mode
+        self.usage_tracking = usage_tracking
+
         logger.info(f"AgentSystem initialized with model: {self.model}")
         if self.temperature is not None:
             logger.info(f"Temperature: {self.temperature}")
+        logger.info(f"Cache control: {'enabled' if self.enable_cache_control else 'disabled'}")
+        logger.info(f"Usage tracking: {self.usage_tracking}")
 
         # In-memory storage for pending changesets
         self.pending_changesets: Dict[str, Changeset] = {}
@@ -152,11 +165,13 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
 
             # Build messages list with prompt caching support
             # System prompt with cache control (marks the system prompt for caching)
-            messages = [{
+            system_message = {
                 "role": "system",
-                "content": self.system_prompt,
-                "cache_control": {"type": "ephemeral"}
-            }]
+                "content": self.system_prompt
+            }
+            if self.enable_cache_control:
+                system_message["cache_control"] = {"type": "ephemeral"}
+            messages = [system_message]
 
             # Track the starting point for new messages (after history)
             history_length = 1  # system message
@@ -165,7 +180,7 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                 # Mark the last message in history for caching if there's substantial history
                 for idx, msg in enumerate(conversation_history):
                     is_last_history_msg = (idx == len(conversation_history) - 1)
-                    if is_last_history_msg and len(conversation_history) >= 3:
+                    if self.enable_cache_control and is_last_history_msg and len(conversation_history) >= 3:
                         # Cache the conversation history at this breakpoint
                         msg_with_cache = dict(msg)
                         msg_with_cache["cache_control"] = {"type": "ephemeral"}
@@ -179,6 +194,40 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
 
             # Define available tools for function calling with cache control
             # Mark tools for caching to reduce repeated processing
+            propose_tool = {
+                "type": "function",
+                "function": {
+                    "name": "propose_config_changes",
+                    "description": "Propose changes to one or more configuration files for user approval. Use this to batch multiple file changes together. First use search_config_files to read files, then provide complete new content for each as YAML strings.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "changes": {
+                                "type": "array",
+                                "description": "Array of file changes. Each change must include file_path and new_content.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "file_path": {
+                                            "type": "string",
+                                            "description": "Relative path to config file (e.g., 'configuration.yaml', 'switches.yaml'). New areas can be specified with 'areas/{area_id}.json' and must include the 'name'"
+                                        },
+                                        "new_content": {
+                                            "type": "string",
+                                            "description": "The complete new content of the file as a valid YAML string. Include all lines - both changed and unchanged."
+                                        }
+                                    },
+                                    "required": ["file_path", "new_content"]
+                                }
+                            },
+                        },
+                        "required": ["changes"]
+                    }
+                }
+            }
+            if self.enable_cache_control:
+                propose_tool["cache_control"] = {"type": "ephemeral"}
+
             tools = [
                 {
                     "type": "function",
@@ -197,38 +246,7 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                         }
                     }
                 },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "propose_config_changes",
-                        "description": "Propose changes to one or more configuration files for user approval. Use this to batch multiple file changes together. First use search_config_files to read files, then provide complete new content for each as YAML strings.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "changes": {
-                                    "type": "array",
-                                    "description": "Array of file changes. Each change must include file_path and new_content.",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "file_path": {
-                                                "type": "string",
-                                                "description": "Relative path to config file (e.g., 'configuration.yaml', 'switches.yaml'). New areas can be specified with 'areas/{area_id}.json' and must include the 'name'"
-                                            },
-                                            "new_content": {
-                                                "type": "string",
-                                                "description": "The complete new content of the file as a valid YAML string. Include all lines - both changed and unchanged."
-                                            }
-                                        },
-                                        "required": ["file_path", "new_content"]
-                                    }
-                                },
-                            },
-                            "required": ["changes"]
-                        }
-                    },
-                    "cache_control": {"type": "ephemeral"}
-                }
+                propose_tool
             ]
 
             # Track tool calls and results
@@ -237,6 +255,11 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
             # Loop to handle multiple rounds of tool calls
             max_iterations = 10
             iteration = 0
+
+            # Track cumulative token usage across all iterations
+            total_input_tokens = 0
+            total_output_tokens = 0
+            total_cached_tokens = 0
 
             while iteration < max_iterations:
                 iteration += 1
@@ -251,6 +274,13 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                     "stream": True
                 }
 
+                # Add usage tracking based on configured mode
+                if self.usage_tracking == 'stream_options':
+                    api_params["stream_options"] = {"include_usage": True}
+                elif self.usage_tracking == 'usage':
+                    api_params["usage"] = {"include": True}
+                # If disabled, don't add any usage tracking parameters
+
                 # Add temperature if specified
                 if self.temperature is not None:
                     api_params["temperature"] = self.temperature
@@ -263,9 +293,34 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                 current_tool_call = None
                 tool_calls_announced = False
                 tool_calls_pending_announced = False
+                # Track token usage
+                input_tokens = 0
+                output_tokens = 0
+                cached_tokens = 0
 
                 async for chunk in stream:
                     delta = chunk.choices[0].delta
+
+                    # Capture token usage if available (present in final chunk)
+                    # Only attempt to parse if usage tracking is not disabled
+                    if self.usage_tracking != 'disabled' and hasattr(chunk, 'usage') and chunk.usage:
+                        input_tokens = getattr(chunk.usage, 'prompt_tokens', 0) or getattr(chunk.usage, 'input_tokens', 0)
+                        output_tokens = getattr(chunk.usage, 'completion_tokens', 0) or getattr(chunk.usage, 'output_tokens', 0)
+
+                        # Check for cached tokens - supports multiple API formats
+                        if hasattr(chunk.usage, 'cached_tokens'):
+                            cached_tokens = chunk.usage.cached_tokens or 0
+                        elif hasattr(chunk.usage, 'prompt_tokens_details') and chunk.usage.prompt_tokens_details:
+                            cached_tokens = getattr(chunk.usage.prompt_tokens_details, 'cached_tokens', 0)
+                        elif hasattr(chunk.usage, 'cached_content_token_count'):
+                            cached_tokens = chunk.usage.cached_content_token_count or 0
+
+                        logger.debug(f"[USAGE] Parsed - Input: {input_tokens}, Output: {output_tokens}, Cached: {cached_tokens}")
+
+                        # Accumulate totals
+                        total_input_tokens += input_tokens
+                        total_output_tokens += output_tokens
+                        total_cached_tokens += cached_tokens
 
                     # Stream content tokens
                     if delta.content:
@@ -283,14 +338,18 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                     if delta.tool_calls:
                         for tool_call_delta in delta.tool_calls:
                             # Initialize new tool call
-                            if tool_call_delta.index is not None:
-                                while len(accumulated_tool_calls) <= tool_call_delta.index:
-                                    accumulated_tool_calls.append({
-                                        "id": "",
-                                        "type": "function",
-                                        "function": {"name": "", "arguments": ""}
-                                    })
-                                current_tool_call = accumulated_tool_calls[tool_call_delta.index]
+                            # Handle index if provided (OpenAI format), otherwise default to 0 (Google format)
+                            index = tool_call_delta.index if tool_call_delta.index is not None else 0
+
+                            # Ensure we have a slot for this tool call
+                            while len(accumulated_tool_calls) <= index:
+                                accumulated_tool_calls.append({
+                                    "id": "",
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""}
+                                })
+
+                            current_tool_call = accumulated_tool_calls[index]
 
                             # Update tool call details
                             if tool_call_delta.id:
@@ -332,7 +391,13 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                         "event": "message_complete",
                         "data": json.dumps({
                             "message": assistant_message,
-                            "iteration": iteration
+                            "iteration": iteration,
+                            "usage": {
+                                "input_tokens": input_tokens,
+                                "output_tokens": output_tokens,
+                                "cached_tokens": cached_tokens,
+                                "total_tokens": input_tokens + output_tokens
+                            }
                         })
                     }
                     break
@@ -406,7 +471,7 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                         "content": json.dumps(result)
                     }
                     # Mark the last tool result for caching to preserve full context
-                    if is_last_tool:
+                    if self.enable_cache_control and is_last_tool:
                         tool_message["cache_control"] = {"type": "ephemeral"}
 
                     messages.append(tool_message)
@@ -433,13 +498,19 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                     })
                 }
 
-            logger.info(f"Agent completed after {iteration} iteration(s)")
+            logger.info(f"Agent completed after {iteration} iteration(s) - Total tokens: {total_input_tokens + total_output_tokens} (input: {total_input_tokens}, output: {total_output_tokens}, cached: {total_cached_tokens})")
 
             yield {
                 "event": "complete",
                 "data": json.dumps({
                     "messages": new_messages,
-                    "iterations": iteration
+                    "iterations": iteration,
+                    "usage": {
+                        "input_tokens": total_input_tokens,
+                        "output_tokens": total_output_tokens,
+                        "cached_tokens": total_cached_tokens,
+                        "total_tokens": total_input_tokens + total_output_tokens
+                    }
                 })
             }
 

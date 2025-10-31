@@ -57,11 +57,20 @@
                     ></textarea>
                     <button id="sendBtn" class="btn btn-primary">Send</button>
                 </div>
+
             </div>
         </main>
 
         <footer>
             <p>AI Configuration Agent for Home Assistant</p>
+            <div id="tokenCounter" class="footer-token-stats" style="display: none;">
+                <span class="token-counter-icon">📊</span>
+                <span class="token-counter-breakdown">
+                    <span class="token-counter-input" id="tokenCounterInput" title="Input tokens">↓0</span>
+                    <span class="token-counter-output" id="tokenCounterOutput" title="Output tokens">↑0</span>
+                    <span class="token-counter-cached" id="tokenCounterCached" title="Cached tokens" style="display: none;">💾0</span>
+                </span>
+            </div>
         </footer>
     </div>
 

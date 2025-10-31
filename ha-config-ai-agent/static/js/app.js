@@ -8,9 +8,14 @@ let pendingChangeset = null;
 let currentChangesetData = null;
 // Track tool_call announcements per assistant iteration to avoid duplicates
 let toolCallIterationsShown = new Set();
+// Track cumulative token usage across entire conversation
+let cumulativeInputTokens = 0;
+let cumulativeOutputTokens = 0;
+let cumulativeCachedTokens = 0;
 
 // DOM elements
 let chatMessages, messageInput, sendBtn, diffModal, diffContent, exportBtn, importBtn, importFileInput;
+let tokenCounter, tokenCounterInput, tokenCounterOutput, tokenCounterCached;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -25,6 +30,10 @@ document.addEventListener('DOMContentLoaded', () => {
     exportBtn = document.getElementById('exportBtn');
     importBtn = document.getElementById('importBtn');
     importFileInput = document.getElementById('importFileInput');
+    tokenCounter = document.getElementById('tokenCounter');
+    tokenCounterInput = document.getElementById('tokenCounterInput');
+    tokenCounterOutput = document.getElementById('tokenCounterOutput');
+    tokenCounterCached = document.getElementById('tokenCounterCached');
 
     // Set up event listeners
     sendBtn.addEventListener('click', sendMessage);
@@ -145,6 +154,14 @@ async function sendMessage() {
                     conversationHistory.push(data.message);
                     if (currentAssistantMessage) {
                         finalizeAssistantMessageStreaming(currentAssistantMessage);
+                        // Update floating token counter if available
+                        if (data.usage) {
+                            updateTokenCounter(
+                                data.usage.input_tokens || 0,
+                                data.usage.output_tokens || 0,
+                                data.usage.cached_tokens || 0
+                            );
+                        }
                     }
                     currentMessageContent = '';
                     currentAssistantMessage = null;
@@ -209,6 +226,15 @@ async function sendMessage() {
 
                 } else if (name === 'complete') {
                     console.log('Stream complete:', data);
+
+                    // Update floating token counter with final totals
+                    if (data.usage) {
+                        updateTokenCounter(
+                            data.usage.input_tokens || 0,
+                            data.usage.output_tokens || 0,
+                            data.usage.cached_tokens || 0
+                        );
+                    }
 
                 } else if (name === 'error') {
                     addSystemMessage(`❌ Error: ${data.error}`);
@@ -419,6 +445,70 @@ function finalizeAssistantMessageStreaming(messageDiv) {
         messageDiv.innerHTML = marked.parse(content);
     }
     scrollToBottom();
+}
+
+// Add token usage information to a message
+function addTokenUsageInfo(messageDiv, usage) {
+    const usageDiv = document.createElement('div');
+    usageDiv.className = 'token-usage-info';
+
+    const totalTokens = usage.total_tokens || (usage.input_tokens + usage.output_tokens);
+    const inputTokens = usage.input_tokens || 0;
+    const outputTokens = usage.output_tokens || 0;
+
+    usageDiv.innerHTML = `
+        <span class="token-usage-label">Tokens:</span>
+        <span class="token-usage-value" title="Input tokens: ${inputTokens.toLocaleString()}\nOutput tokens: ${outputTokens.toLocaleString()}">
+            ${totalTokens.toLocaleString()} (↓${inputTokens.toLocaleString()} ↑${outputTokens.toLocaleString()})
+        </span>
+    `;
+
+    messageDiv.appendChild(usageDiv);
+    scrollToBottom();
+}
+
+// Update the floating token counter bubble
+function updateTokenCounter(inputTokens, outputTokens, cachedTokens = 0) {
+    // Accumulate tokens
+    cumulativeInputTokens += inputTokens;
+    cumulativeOutputTokens += outputTokens;
+    cumulativeCachedTokens += cachedTokens;
+
+    // Update the display
+    tokenCounterInput.textContent = `↓${cumulativeInputTokens.toLocaleString()}`;
+    tokenCounterOutput.textContent = `↑${cumulativeOutputTokens.toLocaleString()}`;
+
+    // Show/hide cached tokens
+    if (cumulativeCachedTokens > 0) {
+        tokenCounterCached.textContent = `💾${cumulativeCachedTokens.toLocaleString()}`;
+        tokenCounterCached.style.display = 'inline';
+    } else {
+        tokenCounterCached.style.display = 'none';
+    }
+
+    // Show the bubble if hidden
+    if (tokenCounter.style.display === 'none') {
+        tokenCounter.style.display = 'flex';
+    }
+
+    // Add pulse animation
+    tokenCounter.classList.add('updated');
+    setTimeout(() => {
+        tokenCounter.classList.remove('updated');
+    }, 300);
+}
+
+// Reset token counter (e.g., on new conversation or import)
+function resetTokenCounter() {
+    cumulativeInputTokens = 0;
+    cumulativeOutputTokens = 0;
+    cumulativeCachedTokens = 0;
+    tokenCounterTotal.textContent = '0';
+    tokenCounterInput.textContent = '↓0';
+    tokenCounterOutput.textContent = '↑0';
+    tokenCounterCached.textContent = '💾0';
+    tokenCounterCached.style.display = 'none';
+    tokenCounter.style.display = 'none';
 }
 
 // Add system message to chat

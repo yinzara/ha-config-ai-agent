@@ -1,5 +1,5 @@
 name: "AI Configuration Agent"
-version: "0.1.9"
+version: ""
 slug: "ai-config-agent"
 description: "AI-powered Home Assistant configuration assistant with approval workflow"
 url: "https://github.com/yinzara/ha-config-ai-agent"
@@ -45,12 +45,14 @@ privileged: []
 
 # User-configurable options
 options:
-  openai_api_url: "https://openrouter.ai/api/v1" # Most flexible default option
+  openai_api_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
   openai_api_key: ""
-  openai_model: "google/gemini-2.5-flash" # Best model for speed and price
+  openai_model: "gemini-2.5-flash" # Best model for speed and price
   log_level: "info"
   system_prompt_file: ""
   temperature: ""
+  enable_cache_control: false
+  usage_tracking: "stream_options" # Options: "stream_options", "usage", "disabled"
 
 schema:
   openai_api_url: url
@@ -59,3 +61,5 @@ schema:
   log_level: list(debug|info|warning|error)
   system_prompt_file: str?
   temperature: str?
+  enable_cache_control: bool
+  usage_tracking: list(stream_options|usage|disabled)

@@ -344,13 +344,19 @@ main {
 
 /* Footer */
 footer {
-    text-align: center;
-    padding: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
     border-top: 1px solid var(--border-color);
     color: #888;
     font-size: 0.9em;
     background: var(--card-bg);
     flex-shrink: 0;
+}
+
+footer p {
+    margin: 0;
 }
 
 /* Scrollbar Styling */
@@ -1104,4 +1110,89 @@ footer {
         flex-direction: column;
         text-align: center;
     }
+}
+
+/* Token usage info */
+.token-usage-info {
+    margin-top: 8px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.6);
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'Courier New', monospace;
+}
+
+.token-usage-label {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.token-usage-value {
+    color: var(--primary-color);
+    cursor: help;
+}
+
+/* Token usage summary message */
+.token-usage-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    padding: 10px 14px;
+    background: rgba(var(--primary-color-rgb), 0.1);
+    border-left: 3px solid var(--primary-color);
+}
+
+.token-usage-icon {
+    font-size: 1.2rem;
+}
+
+.token-usage-summary .token-usage-label {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.token-usage-summary .token-usage-value {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* Footer Token Counter */
+.footer-token-stats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.footer-token-stats .token-counter-icon {
+    font-size: 1rem;
+}
+
+.footer-token-stats .token-counter-total {
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+.footer-token-stats .token-counter-breakdown {
+    display: flex;
+    gap: 6px;
+    font-size: 0.75rem;
+}
+
+.footer-token-stats .token-counter-input,
+.footer-token-stats .token-counter-output,
+.footer-token-stats .token-counter-cached {
+    font-weight: 600;
+}
+
+.footer-token-stats .token-counter-cached {
+    color: rgba(255, 215, 0, 0.9);
 }

@@ -130,30 +130,58 @@ openai_api_key: "sk-your-openai-api-key"
 #### Full Configuration
 
 ```yaml
-openai_api_url: "https://api.openai.com/v1"
-openai_api_key: "sk-your-api-key"
-openai_model: "gpt-4o"
+openai_api_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+openai_api_key: "your-api-key"
+openai_model: "gemini-2.5-flash"
 log_level: "info"
 system_prompt_file: ""
+temperature: ""
+enable_cache_control: false
+usage_tracking: "stream_options"
 ```
 
 #### Configuration Parameters
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `openai_api_url` | URL | `https://api.openai.com/v1` | API endpoint URL |
+| `openai_api_url` | URL | `https://generativelanguage.googleapis.com/v1beta/openai/` | API endpoint URL (Google Cloud default, can be changed to any OpenAI-compatible provider) |
 | `openai_api_key` | Password | *Required* | API authentication key |
-| `openai_model` | String | `gpt-4o` | Model identifier to use |
+| `openai_model` | String | `gemini-2.5-flash` | Model identifier to use |
 | `log_level` | List | `info` | Logging level: `debug`, `info`, `warning`, `error` |
 | `system_prompt_file` | String | `""` (empty) | Optional: Path to custom system prompt file (relative to `/config`) |
+| `temperature` | String | `""` (empty) | Optional: Model temperature (0.0-2.0). Lower=more focused, higher=more creative. Empty uses model default |
+| `enable_cache_control` | Boolean | `false` | Enable prompt caching for Anthropic Claude models to reduce costs and improve response time |
+| `usage_tracking` | List | `stream_options` | Token usage tracking method: `stream_options` (real-time), `usage` (post-response), or `disabled` |
 
 ### AI Provider Setup
 
-The add-on supports any OpenAI-compatible API endpoint.
+The add-on supports any OpenAI-compatible API endpoint. The default configuration uses Google Cloud's Gemini API, but you can easily switch to any other provider.
 
-#### OpenAI (Default)
+#### Google Cloud (Default)
 
-**Best for:** Production use, highest quality responses
+**Best for:** Fast responses, cost-effective, high quality
+
+The add-on is configured by default to use Google Cloud's Gemini API.
+
+1. Sign up at https://aistudio.google.com/
+2. Create an API key
+3. The default configuration should work:
+   ```yaml
+   openai_api_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+   openai_api_key: "your-google-api-key"
+   openai_model: "gemini-2.5-flash"
+   usage_tracking: "stream_options"
+   ```
+
+**Recommended models:**
+- `gemini-2.5-flash` - Default, best balance of speed and quality
+- `gemini-2.0-flash-exp` - Experimental, cutting-edge features
+- `gemini-2.5-pro` - Higher quality, longer context
+- `gemini-1.5-flash` - Faster, lower cost
+
+#### OpenAI
+
+**Best for:** Production use, proven reliability
 
 1. Sign up at https://platform.openai.com/
 2. Create an API key
@@ -161,13 +189,15 @@ The add-on supports any OpenAI-compatible API endpoint.
    ```yaml
    openai_api_url: "https://api.openai.com/v1"
    openai_api_key: "sk-proj-your-key-here"
-   openai_model: "gpt-5-mini"
+   openai_model: "gpt-4o"
+   usage_tracking: "stream_options"
    ```
 
 **Recommended models:**
-- `gpt-5-mini` - Default, Best balance of speed and quality
-- `gpt-5` - High quality, slower
-- `gpt-5-nano` - Faster, lower cost (not recommended)
+- `gpt-5-mini` - Best seed and cost but requires validation
+- `gpt-4o` - Best balance of speed and quality without validation
+- `gpt-4o-mini` - Faster, lower cost
+- `gpt-5` - Advanced reasoning (slower, more expensive)
 
 #### OpenRouter
 
@@ -196,9 +226,9 @@ Access to the Claude family of models
    ```
 
 **Recommended models:**
-- `anthropic/claude-4.5-sonnet` - Excellent reasoning
-- `openai/gpt-5` - OpenAI via OpenRouter
-- `google/gemini-pro-2.5` - Long context support
+- `claude-4.5-haiku` - Fast inexpensive reasoning
+- `claude-4.5-sonnet` - Excellent reasoning
+
 
 #### Local Ollama
 
@@ -303,6 +333,99 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
 - If the specified file is not found, a warning is logged and the default prompt is used
 - If there's an error reading the file, the default prompt is used
 
+### Temperature Configuration
+
+The `temperature` parameter controls the randomness and creativity of AI responses:
+
+- **Range:** 0.0 to 2.0
+- **Lower values (0.0-0.7):** More focused, deterministic, and consistent responses. Recommended for configuration management.
+- **Medium values (0.7-1.0):** Balanced between creativity and consistency.
+- **Higher values (1.0-2.0):** More creative and varied responses. May be less predictable.
+- **Empty/Default:** Uses the model's default temperature setting.
+
+**Example configurations:**
+```yaml
+temperature: ""        # Use model default
+temperature: "0.5"     # Conservative, consistent (recommended)
+temperature: "1.0"     # Balanced
+temperature: "1.5"     # More creative
+```
+
+**Note:** Not all models support custom temperature settings. Check your provider's documentation.
+
+### Prompt Caching (Anthropic Claude Only)
+
+The `enable_cache_control` option enables prompt caching for Anthropic Claude models, which can significantly reduce costs and improve response times for repeated conversations.
+
+**How it works:**
+- The system prompt is marked as cacheable
+- Claude caches the prompt for 5 minutes
+- Subsequent requests within 5 minutes reuse the cached prompt
+- Reduces input token costs by ~90% for cached content
+
+**Configuration:**
+```yaml
+enable_cache_control: true   # Enable for Anthropic Claude models
+enable_cache_control: false  # Disable for all other providers (default)
+```
+
+**⚠️ Important:** Only set to `true` when using **Anthropic Claude models** (claude-3-5-sonnet, claude-4-sonnet, etc.). This feature will cause errors or be ignored by other providers like OpenAI, Google, or OpenRouter with non-Anthropic models.
+
+**When to enable:**
+- ✅ Using direct Anthropic API with Claude models
+- ✅ Using OpenRouter with Anthropic Claude models
+- ❌ Using OpenAI, Google Gemini, or other providers
+- ❌ Using OpenRouter with non-Anthropic models
+
+### Token Usage Tracking
+
+The `usage_tracking` option controls how token usage statistics are collected and displayed in the footer.
+
+**Options:**
+
+1. **`stream_options`** (Real-time tracking)
+   - Token counts update live during streaming responses
+   - Shows cumulative input/output/cached tokens as messages arrive
+   - Best user experience with immediate feedback
+   - **Use for:** OpenAI (GPT-4, GPT-5, etc.) and Google Gemini
+
+2. **`usage`** (Post-response tracking)
+   - Token counts reported after the full response completes
+   - Uses the standard `usage` field in API responses
+   - Slightly delayed display compared to streaming
+   - **Use for:** Anthropic Claude and OpenRouter
+
+3. **`disabled`** (No tracking)
+   - Token counting completely disabled
+   - Footer token statistics won't be displayed
+   - **Use for:** Local models (Ollama) or when tracking isn't needed/supported
+
+**Configuration by Provider:**
+
+```yaml
+# OpenAI (GPT-4, GPT-5, etc.)
+usage_tracking: "stream_options"  # ✅ Recommended
+
+# Google Gemini
+usage_tracking: "stream_options"  # ✅ Recommended
+
+# Anthropic Claude (direct API)
+usage_tracking: "usage"           # ✅ Recommended
+
+# OpenRouter (any model)
+usage_tracking: "usage"           # ✅ Recommended (safer compatibility)
+# OR
+usage_tracking: "disabled"        # ✅ If experiencing errors
+
+# Local Ollama
+usage_tracking: "disabled"        # ✅ Doesn't report usage
+```
+
+**⚠️ Important Notes:**
+- **OpenRouter:** Some models may not support either tracking method reliably. If you experience errors or missing token counts, use `disabled`.
+- **`stream_options` errors:** If a model doesn't support `stream_options`, it may cause streaming failures. Switch to `usage` or `disabled` if this occurs.
+- **Anthropic with `stream_options`:** While technically supported, `usage` is more reliable for Claude models through OpenRouter.
+
 #### Tips for Custom Prompts
 
 **Structure your prompt with:**
@@ -359,6 +482,16 @@ After installation and configuration:
 ### Chat Interface
 
 The chat interface supports natural language requests about your Home Assistant configuration.
+
+#### Token Usage Display
+
+The footer displays real-time cumulative token usage statistics for the current conversation:
+- **📊** - Token counter icon
+- **↓** - Input tokens (sent to the AI)
+- **↑** - Output tokens (received from the AI)
+- **💾** - Cached tokens (when supported by the model)
+
+This helps you monitor API usage and costs throughout your conversation session. The counters accumulate across all messages in the current session and reset when the page is refreshed.
 
 #### Query Examples
 
