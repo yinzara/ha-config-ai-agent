@@ -55,3 +55,7 @@ Added configurable temperature parameter for LLM calls. You can now specify the 
 ## [0.1.10] - 2025-10-30
 
 Made cache control configurable and added token usage tracking
+
+## [0.1.11] - 2025-10-31
+
+Enhanced search functionality to support file path patterns. When search_pattern starts with "/", it's treated as a glob pattern and only searches actual files (skipping virtual entities/devices/areas). Example: `/packages/*.yaml` will match all YAML files in the packages directory.

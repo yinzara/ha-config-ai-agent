@@ -162,6 +162,8 @@ class AgentTools:
             search_pattern: Optional text to search for in file contents.
                           Case-insensitive search.
                           If None, returns ALL configuration files.
+                          If starts with "/", treats as file path pattern and only searches
+                          actual files (skips virtual entities/devices/areas).
 
         Returns:
             Dict with:
@@ -188,6 +190,20 @@ class AgentTools:
                 "count": 1,
                 "search_pattern": "mqtt"
             }
+
+            >>> await tools.search_config_files(search_pattern="/packages/*.yaml")
+            {
+                "success": True,
+                "files": [
+                    {
+                        "path": "packages/mqtt.yaml",
+                        "content": "...",
+                        "matches": 1
+                    }
+                ],
+                "count": 1,
+                "search_pattern": "/packages/*.yaml"
+            }
         """
         try:
             from pathlib import Path
@@ -196,8 +212,18 @@ class AgentTools:
             logger.info(f"Agent searching all files - pattern: '{search_pattern or 'none'}'")
             config_dir = self.config_manager.config_dir
 
-            # Find all YAML files
-            matched_paths = list(config_dir.glob("**/*.yaml"))
+            # Check if search_pattern is a file path pattern (starts with "/")
+            is_file_path_pattern = search_pattern and search_pattern.startswith("/")
+
+            if is_file_path_pattern:
+                logger.info(f"Detected file path pattern: {search_pattern}")
+                # Remove leading slash and use as glob pattern
+                glob_pattern = search_pattern.lstrip("/")
+                matched_paths = list(config_dir.glob(glob_pattern))
+                logger.info(f"File path pattern matched {len(matched_paths)} files")
+            else:
+                # Find all YAML files
+                matched_paths = list(config_dir.glob("**/*.yaml"))
 
             # Filter to only files (not directories) and exclude custom_components
             matched_paths = [
@@ -215,8 +241,8 @@ class AgentTools:
                 try:
                     content = await self.config_manager.read_file_raw(relative_path)
 
-                    # If search pattern provided, check if file contains it or filename matches
-                    if search_pattern:
+                    # If search pattern provided and NOT a file path pattern, check if file contains it or filename matches
+                    if search_pattern and not is_file_path_pattern:
                         # Case-insensitive search in content
                         content_matches = len(re.findall(re.escape(search_pattern), content, re.IGNORECASE))
                         # Case-insensitive search in filename
@@ -230,15 +256,28 @@ class AgentTools:
                                 "matches": total_matches
                             })
                     else:
-                        # No search pattern - include all files
+                        # No search pattern OR file path pattern - include all matched files
                         files.append({
                             "path": relative_path,
-                            "content": content
+                            "content": content,
+                            "matches": 1 if is_file_path_pattern else None
                         })
 
                 except Exception as e:
                     logger.warning(f"Could not read {relative_path}: {e}")
                     continue
+
+            # Skip virtual file searches if using file path pattern
+            if is_file_path_pattern:
+                logger.info(f"Skipping virtual file searches for file path pattern")
+                result = {
+                    "success": True,
+                    "files": files,
+                    "count": len(files)
+                }
+                if search_pattern:
+                    result["search_pattern"] = search_pattern
+                return result
 
             # Include virtual files for devices and entities as individual files
             # Format: devices/{device_id}.json and entities/{entity_id}.json
