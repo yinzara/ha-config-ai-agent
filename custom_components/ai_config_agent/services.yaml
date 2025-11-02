@@ -1,0 +1,46 @@
+# Services for AI Configuration Agent
+
+chat:
+  name: Chat with AI Agent
+  description: Send a message to the AI Configuration Agent and receive a response.
+  fields:
+    message:
+      name: Message
+      description: The message to send to the AI agent.
+      required: true
+      example: "Enable debug logging for homeassistant.core"
+      selector:
+        text:
+          multiline: true
+    conversation_history:
+      name: Conversation History
+      description: Previous conversation messages (optional, for context).
+      required: false
+      selector:
+        object:
+
+approve:
+  name: Approve Configuration Changes
+  description: Approve or reject proposed configuration changes.
+  fields:
+    change_id:
+      name: Change ID
+      description: The ID of the changeset to approve or reject.
+      required: true
+      example: "abc123def456"
+      selector:
+        text:
+    approved:
+      name: Approved
+      description: Whether to approve (true) or reject (false) the changes.
+      required: false
+      default: true
+      selector:
+        boolean:
+    validate:
+      name: Validate
+      description: Whether to validate the configuration with Home Assistant before applying.
+      required: false
+      default: true
+      selector:
+        boolean:

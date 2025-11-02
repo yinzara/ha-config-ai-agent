@@ -1,0 +1,18 @@
+{
+  "domain": "ai_config_agent",
+  "name": "AI Configuration Agent",
+  "codeowners": ["@yinzara"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/yinzara/ha-config-ai-agent",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/yinzara/ha-config-ai-agent/issues",
+  "requirements": [
+    "fastapi==0.109.0",
+    "uvicorn[standard]==0.27.0",
+    "openai==1.58.1",
+    "ruamel.yaml==0.18.5"
+  ],
+  "version": "0.1.11"
+}

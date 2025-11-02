@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "AI Configuration Agent",
+        "description": "Set up your AI Configuration Agent to manage Home Assistant configuration files through natural language.",
+        "data": {
+          "api_key": "OpenAI API Key",
+          "api_url": "API URL",
+          "model": "Model Name",
+          "log_level": "Log Level",
+          "temperature": "Temperature (optional)",
+          "system_prompt_file": "System Prompt File (optional)",
+          "enable_cache_control": "Enable Cache Control",
+          "usage_tracking": "Usage Tracking Method"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the API. Please check your API key and URL.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "AI Configuration Agent is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AI Configuration Agent Options",
+        "data": {
+          "api_url": "API URL",
+          "model": "Model Name",
+          "log_level": "Log Level",
+          "temperature": "Temperature (optional)",
+          "system_prompt_file": "System Prompt File (optional)",
+          "enable_cache_control": "Enable Cache Control",
+          "usage_tracking": "Usage Tracking Method"
+        }
+      }
+    }
+  }
+}
