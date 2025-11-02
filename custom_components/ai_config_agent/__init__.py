@@ -72,8 +72,10 @@ async def _start_server(hass: HomeAssistant, entry: ConfigEntry) -> None:
         sys.path.insert(0, str(src_dir))
 
     # Change to component directory so FastAPI can find static/templates
-    original_cwd = os.getcwd()
-    os.chdir(str(component_dir))
+    try:
+        os.chdir(str(component_dir))
+    except (FileNotFoundError, OSError) as err:
+        _LOGGER.warning("Could not change to component directory, continuing anyway: %s", err)
 
     # Set environment variables from config
     config = entry.data
