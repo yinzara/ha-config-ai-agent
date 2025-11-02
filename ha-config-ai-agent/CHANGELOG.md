@@ -59,3 +59,7 @@ Made cache control configurable and added token usage tracking
 ## [0.1.11] - 2025-10-31
 
 Enhanced search functionality to support file path patterns. When search_pattern starts with "/", it's treated as a glob pattern and only searches actual files (skipping virtual entities/devices/areas). Example: `/packages/*.yaml` will match all YAML files in the packages directory.
+
+## [0.2.0] - 20205-11-01
+
+Converted to support installation via HACS as custom component as well as add-on installation.

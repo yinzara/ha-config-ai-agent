@@ -9,10 +9,32 @@ An AI-powered Home Assistant configuration assistant with approval workflow.
 - "Create an automation that turns on the porch light at sunset"
 
 # Installation
-1. Navigate to the Supervisor panel in your Home Assistant instance.
-2. Click on the "Add-on store" tab.
-3. Add the repository URL for this add-on.
-4. Install the "AI Configuration Agent" add-on.
+
+## Option 1: HACS Custom Component (Recommended for Core/Container)
+
+1. **Add to HACS:**
+   - Open HACS → Integrations
+   - Click ⋮ → Custom repositories
+   - Add: `https://github.com/yinzara/ha-config-ai-agent`
+   - Category: Integration
+
+2. **Install:**
+   - Search for "AI Configuration Agent"
+   - Click Download
+   - Restart Home Assistant
+
+3. **Configure:**
+   - Settings → Devices & Services → Add Integration
+   - Search "AI Configuration Agent"
+   - Enter API key and settings
+
+## Option 2: Home Assistant Add-on (Supervisor Required)
+
+1. Navigate to Settings → Add-ons → Add-on Store
+2. Click ⋮ → Repositories
+3. Add: `https://github.com/yinzara/ha-config-ai-agent`
+4. Find "AI Configuration Agent" and click Install
+5. Configure and Start
 
 # Features
 * 🤖 **Natural Language Interface** - No YAML expertise required

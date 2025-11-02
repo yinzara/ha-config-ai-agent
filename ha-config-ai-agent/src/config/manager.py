@@ -48,7 +48,8 @@ class ConfigurationManager:
         config_dir: str,
         backup_dir: str,
         max_backups: int = 10,
-        ha_check_config_cmd: str = "ha core check"
+        ha_check_config_cmd: str = "ha core check",
+        hass = None
     ):
         """
         Initialize ConfigurationManager.
@@ -58,11 +59,13 @@ class ConfigurationManager:
             backup_dir: Path to backup directory
             max_backups: Maximum number of backups to keep per file
             ha_check_config_cmd: Command to run HA config validation
+            hass: Home Assistant instance (for custom component mode)
         """
         self.config_dir = Path(config_dir).resolve()
         self.backup_dir = Path(backup_dir).resolve()
         self.max_backups = max_backups
         self.ha_check_config_cmd = ha_check_config_cmd
+        self.hass = hass
 
         # Initialize ruamel.yaml with comment preservation
         self.yaml = YAML()
@@ -273,12 +276,34 @@ class ConfigurationManager:
             raise ConfigurationError(f"Error writing raw file {file_path}: {str(e)}")
 
     async def _write_device_json(self, file_path: str, json_content: str):
-        """Write device changes via WebSocket API."""
-        from ..ha.ha_websocket import HomeAssistantWebSocket
+        """
+        Write device changes.
+
+        Uses hass API in custom component mode, WebSocket in add-on mode.
+        """
         import json
 
         device_id = file_path.replace("devices/", "").replace(".json", "")
         device = json.loads(json_content)
+
+        # Custom component mode: use hass directly
+        if self.hass is not None:
+            from homeassistant.helpers import device_registry as dr
+
+            device_reg = dr.async_get(self.hass)
+
+            # Update device
+            device_reg.async_update_device(
+                device_id=device_id,
+                name_by_user=device.get('name_by_user'),
+                area_id=device.get('area_id'),
+                disabled_by=device.get('disabled_by')
+            )
+            logger.info(f"Updated device via hass API: {device_id}")
+            return
+
+        # Add-on mode: use WebSocket API
+        from ..ha.ha_websocket import HomeAssistantWebSocket
 
         supervisor_token = os.getenv('SUPERVISOR_TOKEN')
         if not supervisor_token:
@@ -301,12 +326,34 @@ class ConfigurationManager:
             await ws_client.close()
 
     async def _write_entity_json(self, file_path: str, json_content: str):
-        """Write entity changes via WebSocket API."""
-        from ..ha.ha_websocket import HomeAssistantWebSocket
+        """
+        Write entity changes.
+
+        Uses hass API in custom component mode, WebSocket in add-on mode.
+        """
         import json
 
         entity_id = file_path.replace("entities/", "").replace(".json", "")
         entity = json.loads(json_content)
+
+        # Custom component mode: use hass directly
+        if self.hass is not None:
+            from homeassistant.helpers import entity_registry as er
+
+            entity_reg = er.async_get(self.hass)
+
+            # Update entity
+            entity_reg.async_update_entity(
+                entity_id=entity_id,
+                name=entity.get('name'),
+                icon=entity.get('icon'),
+                area_id=entity.get('area_id')
+            )
+            logger.info(f"Updated entity via hass API: {entity_id}")
+            return
+
+        # Add-on mode: use WebSocket API
+        from ..ha.ha_websocket import HomeAssistantWebSocket
 
         supervisor_token = os.getenv('SUPERVISOR_TOKEN')
         if not supervisor_token:
@@ -329,12 +376,51 @@ class ConfigurationManager:
             await ws_client.close()
 
     async def _write_area_json(self, file_path: str, json_content: str):
-        """Write area changes via WebSocket API. Creates area if it doesn't exist."""
-        from ..ha.ha_websocket import HomeAssistantWebSocket
+        """
+        Write area changes. Creates area if it doesn't exist.
+
+        Uses hass API in custom component mode, WebSocket in add-on mode.
+        """
         import json
 
         area_id = file_path.replace("areas/", "").replace(".json", "")
         area = json.loads(json_content)
+
+        # Custom component mode: use hass directly
+        if self.hass is not None:
+            from homeassistant.helpers import area_registry as ar
+
+            area_reg = ar.async_get(self.hass)
+
+            # Check if area exists
+            existing_area = area_reg.async_get_area(area_id)
+
+            if existing_area:
+                # Update existing area
+                area_reg.async_update(
+                    area_id=area_id,
+                    name=area.get('name'),
+                    picture=area.get('picture'),
+                    icon=area.get('icon'),
+                    aliases=set(area.get('aliases', []))
+                )
+                logger.info(f"Updated area via hass API: {area_id}")
+            else:
+                # Create new area - name is required
+                if not area.get('name'):
+                    raise ConfigurationError(f"Cannot create area {area_id}: 'name' is required")
+
+                area_reg.async_create(
+                    name=area.get('name'),
+                    picture=area.get('picture'),
+                    icon=area.get('icon'),
+                    aliases=set(area.get('aliases', []))
+                )
+                logger.info(f"Created new area via hass API: {area.get('name')}")
+            return
+
+        # Add-on mode: use WebSocket API
+        from ..ha.ha_websocket import HomeAssistantWebSocket
 
         supervisor_token = os.getenv('SUPERVISOR_TOKEN')
         if not supervisor_token:
@@ -376,7 +462,44 @@ class ConfigurationManager:
             await ws_client.close()
 
     async def _write_lovelace_yaml(self, yaml_content: str):
-        """Write lovelace config via WebSocket API."""
+        """
+        Write lovelace config.
+
+        Uses hass API in custom component mode, WebSocket in add-on mode.
+        """
+        # Parse YAML to get the config structure
+        config = self.yaml.load(yaml_content)
+
+        # Custom component mode: use hass directly
+        if self.hass is not None:
+            from homeassistant.components.lovelace.const import DOMAIN as LOVELACE_DOMAIN
+
+            logger.info("Saving Lovelace config via hass API (custom component mode)")
+
+            # Check if lovelace is loaded
+            if LOVELACE_DOMAIN not in self.hass.data:
+                raise ConfigurationError("Lovelace component not loaded")
+
+            # Get the lovelace data (LovelaceData object)
+            lovelace_data = self.hass.data.get(LOVELACE_DOMAIN)
+
+            if lovelace_data and hasattr(lovelace_data, 'dashboards'):
+                # LovelaceData has a dashboards dict
+                dashboards = lovelace_data.dashboards
+
+                # Try to get default dashboard (None key or 'lovelace' key)
+                default_dashboard = dashboards.get(None) or dashboards.get('lovelace')
+
+                if default_dashboard:
+                    await default_dashboard.async_save(config)
+                    logger.info("Updated Lovelace config via hass API")
+                    return
+                else:
+                    raise ConfigurationError("Lovelace dashboard not available")
+            else:
+                raise ConfigurationError("Lovelace dashboards not available")
+
+        # Add-on mode: use WebSocket API
         from ..ha.ha_websocket import HomeAssistantWebSocket
 
         supervisor_token = os.getenv('SUPERVISOR_TOKEN')
@@ -388,8 +511,6 @@ class ConfigurationManager:
 
         try:
             await ws_client.connect()
-            # Parse YAML to get the config structure
-            config = self.yaml.load(yaml_content)
             await ws_client.save_lovelace_config(config)
             logger.info("Updated Lovelace config via WebSocket")
         finally:
@@ -397,13 +518,42 @@ class ConfigurationManager:
 
     async def validate_config(self) -> None:
         """
-        Run Home Assistant configuration validation using RESTful API.
+        Run Home Assistant configuration validation.
+
+        Uses Supervisor API in add-on mode, or HA internal validation in custom component mode.
 
         Raises:
             ValidationError: If validation fails
         """
-        logger.info("Running Home Assistant configuration validation via API...")
+        logger.info("Running Home Assistant configuration validation...")
 
+        # If running as custom component, use HA's internal validation
+        if self.hass is not None:
+            try:
+                from homeassistant.config import async_check_ha_config_file
+
+                logger.info("Using Home Assistant internal validation (custom component mode)")
+
+                # Run HA's internal validation
+                # Returns None if valid, or error string if invalid
+                config_error = await async_check_ha_config_file(self.hass)
+
+                if config_error:
+                    logger.error(f"Configuration validation failed:\n{config_error}")
+                    raise ValidationError(
+                        f"Home Assistant configuration validation failed:\n{config_error}"
+                    )
+
+                logger.info("Configuration validation passed ✓")
+                return
+
+            except ValidationError:
+                raise
+            except Exception as e:
+                logger.error(f"Validation error: {str(e)}")
+                raise ValidationError(f"Validation failed: {str(e)}")
+
+        # Add-on mode: use Supervisor API
         try:
             import aiohttp
 

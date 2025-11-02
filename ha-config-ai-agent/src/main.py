@@ -13,7 +13,7 @@ import json as json_lib
 from .config import ConfigurationManager
 from .agents import AgentSystem
 
-version = ""
+version = "0.2.0"
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'info').upper()
@@ -58,13 +58,20 @@ async def lifespan(_: FastAPI):
 
     # Phase 2: Initialize configuration manager
     try:
-        config_manager = ConfigurationManager(
-            config_dir=os.getenv('HA_CONFIG_DIR', '/config'),
-            backup_dir=os.getenv('BACKUP_DIR', '/backup')
-        )
+        # Run in executor to avoid blocking the event loop
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        def init_config_manager():
+            return ConfigurationManager(
+                config_dir=os.getenv('HA_CONFIG_DIR', '/config'),
+                backup_dir=os.getenv('BACKUP_DIR', '/backup')
+            )
+
+        config_manager = await loop.run_in_executor(None, init_config_manager)
         logger.info("Configuration manager initialized")
     except Exception as e:
-        logger.error(f"Failed to initialize configuration manager: {e}")
+        logger.error(f"Failed to initialize configuration manager: {e}", exc_info=True)
 
     # Phase 3: Initialize agent system
     try:
@@ -138,6 +145,14 @@ async def strip_double_slash_middleware(request: Request, call_next):
 # Mount static files and templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+# Function to set hass instance (called from custom component __init__.py)
+def set_hass_instance(hass):
+    """Set the Home Assistant instance for custom component mode."""
+    global config_manager
+    if config_manager:
+        config_manager.hass = hass
+        logger.info("Home Assistant instance set on config_manager")
 
 # Health check endpoint
 @app.get("/health")

@@ -46,27 +46,86 @@ class AgentTools:
 
     async def _get_lovelace_config(self) -> Optional[str]:
         """
-        Internal helper to retrieve Lovelace config via WebSocket.
+        Internal helper to retrieve Lovelace config.
+
+        Uses hass API in custom component mode, WebSocket in add-on mode.
 
         Returns:
             YAML string of Lovelace config, or None if not available
         """
-        # Check if we have supervisor token for WebSocket connection
-        supervisor_token = os.getenv('SUPERVISOR_TOKEN')
-        if not supervisor_token:
-            logger.debug("No SUPERVISOR_TOKEN available, skipping Lovelace config")
-            return None
-
         # Return cached version if available
         if self._lovelace_cache:
             return self._lovelace_cache
 
         try:
+            # Custom component mode: use hass directly
+            if self.config_manager.hass is not None:
+                from homeassistant.components.lovelace.const import DOMAIN as LOVELACE_DOMAIN
+                from ruamel.yaml import YAML
+
+                hass = self.config_manager.hass
+                logger.info("Using hass API to retrieve Lovelace config (custom component mode)")
+
+                # Check if lovelace is loaded
+                if LOVELACE_DOMAIN not in hass.data:
+                    logger.warning("Lovelace component not loaded in hass.data")
+                    return None
+
+                # Try to get the default dashboard (storage mode)
+                try:
+                    # Get the lovelace data (LovelaceData object)
+                    lovelace_data = hass.data.get(LOVELACE_DOMAIN)
+                    logger.info(f"Lovelace data type: {type(lovelace_data)}")
+
+                    if lovelace_data and hasattr(lovelace_data, 'dashboards'):
+                        # LovelaceData has a dashboards dict
+                        dashboards = lovelace_data.dashboards
+                        logger.info(f"Dashboard keys: {list(dashboards.keys())}")
+
+                        # Try to get default dashboard (None key or 'lovelace' key)
+                        default_dashboard = dashboards.get(None) or dashboards.get('lovelace')
+
+                        if default_dashboard:
+                            logger.info(f"Found dashboard, type: {type(default_dashboard)}, has async_load: {hasattr(default_dashboard, 'async_load')}")
+
+                            config = await default_dashboard.async_load(False)
+
+                            if config:
+                                logger.info(f"Loaded config with {len(config)} keys")
+                                # Convert config dict to YAML
+                                yaml = YAML()
+                                yaml.default_flow_style = False
+                                from io import StringIO
+                                stream = StringIO()
+                                yaml.dump(config, stream)
+                                lovelace_yaml = stream.getvalue()
+
+                                self._lovelace_cache = lovelace_yaml
+                                logger.info("Successfully retrieved Lovelace config via hass API")
+                                return lovelace_yaml
+                            else:
+                                logger.warning("Dashboard async_load returned None or empty config")
+                        else:
+                            logger.warning(f"No default dashboard found in dashboards: {list(dashboards.keys())}")
+                    else:
+                        logger.warning(f"No dashboards attribute found on lovelace_data")
+                except Exception as e:
+                    logger.error(f"Error accessing Lovelace dashboard: {e}", exc_info=True)
+
+                logger.warning("No Lovelace config available or not in storage mode")
+                return None
+
+            # Add-on mode: use WebSocket API
+            supervisor_token = os.getenv('SUPERVISOR_TOKEN')
+            if not supervisor_token:
+                logger.debug("No SUPERVISOR_TOKEN available, skipping Lovelace config")
+                return None
+
             ws_url = "ws://supervisor/core/websocket"
             lovelace_yaml = await get_lovelace_config_as_yaml(ws_url, supervisor_token)
             if lovelace_yaml:
                 self._lovelace_cache = lovelace_yaml
-                logger.info("Successfully retrieved Lovelace config")
+                logger.info("Successfully retrieved Lovelace config via WebSocket")
             return lovelace_yaml
         except Exception as e:
             logger.debug(f"Failed to get Lovelace config: {e}")
@@ -76,17 +135,39 @@ class AgentTools:
         """
         Internal helper to retrieve all devices from registry.
 
+        Uses hass API in custom component mode, WebSocket in add-on mode.
+
         Returns:
             List of device dictionaries
         """
-        from ..ha.ha_websocket import HomeAssistantWebSocket
-
-        supervisor_token = os.getenv('SUPERVISOR_TOKEN')
-        if not supervisor_token:
-            logger.debug("No SUPERVISOR_TOKEN available, skipping devices")
-            return []
-
         try:
+            # Custom component mode: use hass directly
+            if self.config_manager.hass is not None:
+                from homeassistant.helpers import device_registry as dr
+
+                hass = self.config_manager.hass
+                device_reg = dr.async_get(hass)
+                devices = []
+                for device in device_reg.devices.values():
+                    devices.append({
+                        "id": device.id,
+                        "name": device.name,
+                        "name_by_user": device.name_by_user,
+                        "area_id": device.area_id,
+                        "disabled_by": device.disabled_by,
+                        "identifiers": list(device.identifiers),
+                    })
+                logger.debug(f"Retrieved {len(devices)} devices via hass API")
+                return devices
+
+            # Add-on mode: use WebSocket API
+            from ..ha.ha_websocket import HomeAssistantWebSocket
+
+            supervisor_token = os.getenv('SUPERVISOR_TOKEN')
+            if not supervisor_token:
+                logger.debug("No SUPERVISOR_TOKEN available, skipping devices")
+                return []
+
             ws_url = "ws://supervisor/core/websocket"
             ws_client = HomeAssistantWebSocket(ws_url, supervisor_token)
             await ws_client.connect()
@@ -101,17 +182,41 @@ class AgentTools:
         """
         Internal helper to retrieve all entities from registry.
 
+        Uses hass API in custom component mode, WebSocket in add-on mode.
+
         Returns:
             List of entity dictionaries
         """
-        from ..ha.ha_websocket import HomeAssistantWebSocket
-
-        supervisor_token = os.getenv('SUPERVISOR_TOKEN')
-        if not supervisor_token:
-            logger.debug("No SUPERVISOR_TOKEN available, skipping entities")
-            return []
-
         try:
+            # Custom component mode: use hass directly
+            if self.config_manager.hass is not None:
+                from homeassistant.helpers import entity_registry as er
+
+                hass = self.config_manager.hass
+                entity_reg = er.async_get(hass)
+                entities = []
+                for entity in entity_reg.entities.values():
+                    entities.append({
+                        "entity_id": entity.entity_id,
+                        "name": entity.name,
+                        "original_name": entity.original_name,
+                        "icon": entity.icon,
+                        "area_id": entity.area_id,
+                        "device_id": entity.device_id,
+                        "platform": entity.platform,
+                        "disabled_by": entity.disabled_by,
+                    })
+                logger.debug(f"Retrieved {len(entities)} entities via hass API")
+                return entities
+
+            # Add-on mode: use WebSocket API
+            from ..ha.ha_websocket import HomeAssistantWebSocket
+
+            supervisor_token = os.getenv('SUPERVISOR_TOKEN')
+            if not supervisor_token:
+                logger.debug("No SUPERVISOR_TOKEN available, skipping entities")
+                return []
+
             ws_url = "ws://supervisor/core/websocket"
             ws_client = HomeAssistantWebSocket(ws_url, supervisor_token)
             await ws_client.connect()
@@ -126,17 +231,38 @@ class AgentTools:
         """
         Internal helper to retrieve all areas from registry.
 
+        Uses hass API in custom component mode, WebSocket in add-on mode.
+
         Returns:
             List of area dictionaries
         """
-        from ..ha.ha_websocket import HomeAssistantWebSocket
-
-        supervisor_token = os.getenv('SUPERVISOR_TOKEN')
-        if not supervisor_token:
-            logger.debug("No SUPERVISOR_TOKEN available, skipping areas")
-            return []
-
         try:
+            # Custom component mode: use hass directly
+            if self.config_manager.hass is not None:
+                from homeassistant.helpers import area_registry as ar
+
+                hass = self.config_manager.hass
+                area_reg = ar.async_get(hass)
+                areas = []
+                for area in area_reg.areas.values():
+                    areas.append({
+                        "area_id": area.id,
+                        "name": area.name,
+                        "picture": area.picture,
+                        "icon": area.icon,
+                        "aliases": area.aliases,
+                    })
+                logger.debug(f"Retrieved {len(areas)} areas via hass API")
+                return areas
+
+            # Add-on mode: use WebSocket API
+            from ..ha.ha_websocket import HomeAssistantWebSocket
+
+            supervisor_token = os.getenv('SUPERVISOR_TOKEN')
+            if not supervisor_token:
+                logger.debug("No SUPERVISOR_TOKEN available, skipping areas")
+                return []
+
             ws_url = "ws://supervisor/core/websocket"
             ws_client = HomeAssistantWebSocket(ws_url, supervisor_token)
             await ws_client.connect()
