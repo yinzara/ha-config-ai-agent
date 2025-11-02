@@ -1,9 +1,7 @@
 {
   "name": "AI Configuration Agent",
   "content_in_root": false,
-  "filename": "ai_config_agent",
   "render_readme": true,
-  "domains": ["ai_config_agent"],
   "iot_class": "Local Push",
   "homeassistant": "2024.1.0"
 }
