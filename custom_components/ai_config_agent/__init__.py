@@ -28,6 +28,9 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = []
 
+# This integration is only configurable via config entries
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the AI Configuration Agent component."""
     hass.data.setdefault(DOMAIN, {})

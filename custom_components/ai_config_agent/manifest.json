@@ -3,9 +3,12 @@
   "name": "AI Configuration Agent",
   "codeowners": ["@yinzara"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": [
+    "lovelace",
+    "http"
+  ],
   "documentation": "https://github.com/yinzara/ha-config-ai-agent",
-  "integration_type": "service",
+  "integration_type": "system",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/yinzara/ha-config-ai-agent/issues",
   "requirements": [
