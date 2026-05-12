@@ -273,6 +273,215 @@ class AgentTools:
             logger.debug(f"Failed to get areas: {e}")
             return []
 
+    async def _get_system_logs_raw(self) -> List[Dict[str, Any]]:
+        """
+        Internal helper to retrieve raw system logs.
+
+        Uses hass API in custom component mode, WebSocket in add-on mode.
+
+        Returns:
+            List of log entry dictionaries
+        """
+        try:
+            # Custom component mode: use hass directly
+            if self.config_manager.hass is not None:
+                from homeassistant.components.system_log import DOMAIN as SYSTEM_LOG_DOMAIN
+
+                hass = self.config_manager.hass
+                if SYSTEM_LOG_DOMAIN in hass.data:
+                    system_log_data = hass.data[SYSTEM_LOG_DOMAIN]
+                    if hasattr(system_log_data, 'records'):
+                        logs = []
+                        for record in system_log_data.records:
+                            logs.append({
+                                "name": record.get("name", ""),
+                                "message": " ".join(str(m) for m in record.get("message", [])),
+                                "level": record.get("level", ""),
+                                "source": record.get("source", []),
+                                "timestamp": record.get("timestamp", 0),
+                                "exception": record.get("exception", ""),
+                                "count": record.get("count", 1),
+                                "first_occurred": record.get("first_occurred", 0),
+                            })
+                        logger.debug(f"Retrieved {len(logs)} system log entries via hass API")
+                        return logs
+                logger.warning("system_log component not available in hass.data")
+                return []
+
+            # Add-on mode: use WebSocket API
+            from ..ha.ha_websocket import HomeAssistantWebSocket
+
+            supervisor_token = os.getenv('SUPERVISOR_TOKEN')
+            if not supervisor_token:
+                logger.debug("No SUPERVISOR_TOKEN available, skipping system logs")
+                return []
+
+            ws_url = "ws://supervisor/core/websocket"
+            ws_client = HomeAssistantWebSocket(ws_url, supervisor_token)
+            await ws_client.connect()
+            logs = await ws_client.get_system_logs()
+            await ws_client.close()
+            return logs
+        except Exception as e:
+            logger.error(f"Failed to get system logs: {e}")
+            return []
+
+    async def get_system_logs(
+        self,
+        severity: Optional[str] = None,
+        component: Optional[str] = None,
+        search_pattern: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Retrieve Home Assistant system logs for debugging and troubleshooting.
+
+        All parameters are optional. Returns the most recent matching entries.
+
+        Args:
+            severity: Filter by log level ('error', 'warning', 'info', 'debug', 'critical').
+                     Case-insensitive.
+            component: Filter by integration/component name (e.g., 'zwave_js', 'mqtt').
+                      Matches against the logger name. Case-insensitive partial match.
+            search_pattern: Text to search for in log messages. Case-insensitive.
+            start_time: ISO datetime string. Only include logs after this time.
+            end_time: ISO datetime string. Only include logs before this time.
+            limit: Maximum number of entries to return (default 50). Returns most recent first.
+
+        Returns:
+            Dict with:
+                - success: bool
+                - logs: List[Dict] - Log entries, most recent first
+                - count: int - Number of entries returned
+                - total_available: int - Total number of logs before filtering
+                - filters_applied: Dict - Summary of filters that were applied
+                - error: Optional[str]
+
+        Example:
+            >>> await tools.get_system_logs(severity="error", component="zwave_js", limit=10)
+            {
+                "success": True,
+                "logs": [...],
+                "count": 5,
+                "total_available": 150,
+                "filters_applied": {"severity": "error", "component": "zwave_js", "limit": 10}
+            }
+        """
+        try:
+            from datetime import datetime
+
+            logger.info(f"Agent retrieving system logs - severity={severity}, component={component}, search={search_pattern}, limit={limit}")
+
+            # Get all logs
+            all_logs = await self._get_system_logs_raw()
+            total_available = len(all_logs)
+
+            if not all_logs:
+                return {
+                    "success": True,
+                    "logs": [],
+                    "count": 0,
+                    "total_available": 0,
+                    "filters_applied": {},
+                    "message": "No system logs available. The system_log integration may not be loaded."
+                }
+
+            # Track which filters are applied
+            filters_applied: Dict[str, Any] = {}
+
+            # Filter by severity
+            if severity:
+                severity_upper = severity.upper()
+                all_logs = [log for log in all_logs if log.get("level", "").upper() == severity_upper]
+                filters_applied["severity"] = severity
+
+            # Filter by component
+            if component:
+                component_lower = component.lower()
+                all_logs = [log for log in all_logs if component_lower in log.get("name", "").lower()]
+                filters_applied["component"] = component
+
+            # Filter by search pattern in message
+            if search_pattern:
+                pattern_lower = search_pattern.lower()
+                all_logs = [log for log in all_logs if pattern_lower in log.get("message", "").lower()]
+                filters_applied["search_pattern"] = search_pattern
+
+            # Filter by time range
+            if start_time:
+                try:
+                    start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                    start_ts = start_dt.timestamp()
+                    all_logs = [log for log in all_logs if log.get("timestamp", 0) >= start_ts]
+                    filters_applied["start_time"] = start_time
+                except ValueError as e:
+                    logger.warning(f"Invalid start_time format: {start_time} - {e}")
+
+            if end_time:
+                try:
+                    end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                    end_ts = end_dt.timestamp()
+                    all_logs = [log for log in all_logs if log.get("timestamp", 0) <= end_ts]
+                    filters_applied["end_time"] = end_time
+                except ValueError as e:
+                    logger.warning(f"Invalid end_time format: {end_time} - {e}")
+
+            # Sort by timestamp descending (most recent first)
+            all_logs.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+
+            # Apply limit (from the end = most recent)
+            total_after_filter = len(all_logs)
+            if limit and limit > 0:
+                all_logs = all_logs[:limit]
+                filters_applied["limit"] = limit
+
+            # Format timestamps for readability
+            formatted_logs = []
+            for log in all_logs:
+                formatted_log = {
+                    "level": log.get("level", "UNKNOWN"),
+                    "component": log.get("name", "unknown"),
+                    "message": log.get("message", ""),
+                    "timestamp": datetime.fromtimestamp(log.get("timestamp", 0)).isoformat() if log.get("timestamp") else None,
+                    "count": log.get("count", 1),
+                }
+                # Include exception traceback if present
+                if log.get("exception"):
+                    formatted_log["exception"] = log.get("exception")
+                # Include first_occurred if different from timestamp
+                if log.get("first_occurred") and log.get("first_occurred") != log.get("timestamp"):
+                    formatted_log["first_occurred"] = datetime.fromtimestamp(log.get("first_occurred")).isoformat()
+                # Include source file info if present
+                if log.get("source"):
+                    source = log.get("source")
+                    if isinstance(source, (list, tuple)) and len(source) >= 2:
+                        formatted_log["source"] = f"{source[0]}:{source[1]}"
+
+                formatted_logs.append(formatted_log)
+
+            logger.info(f"Returning {len(formatted_logs)} log entries (total available: {total_available}, after filters: {total_after_filter})")
+
+            return {
+                "success": True,
+                "logs": formatted_logs,
+                "count": len(formatted_logs),
+                "total_available": total_available,
+                "total_after_filter": total_after_filter,
+                "filters_applied": filters_applied
+            }
+
+        except Exception as e:
+            logger.error(f"Error retrieving system logs: {e}")
+            return {
+                "success": False,
+                "error": f"Error retrieving system logs: {str(e)}",
+                "logs": [],
+                "count": 0,
+                "total_available": 0
+            }
+
     async def search_config_files(
         self,
         search_pattern: Optional[str] = None

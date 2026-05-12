@@ -398,6 +398,33 @@ class HomeAssistantWebSocket:
             logger.error(f"Failed to update area: {e}")
             raise
 
+    async def get_system_logs(self) -> List[Dict[str, Any]]:
+        """
+        Retrieve system log entries from Home Assistant.
+
+        Returns:
+            List of log entry dictionaries with fields:
+                - name: Logger name (e.g., 'homeassistant.components.zwave_js')
+                - message: Log message text
+                - level: Log level ('ERROR', 'WARNING', 'INFO', 'DEBUG')
+                - source: Source file path tuple [filename, line_number]
+                - timestamp: Unix timestamp of last occurrence
+                - exception: Exception traceback if applicable
+                - count: Number of occurrences
+                - first_occurred: Unix timestamp of first occurrence
+
+        Raises:
+            Exception: If retrieval fails
+        """
+        logger.info("Retrieving system logs via WebSocket")
+        try:
+            logs = await self.call("system_log/list")
+            logger.info(f"Successfully retrieved {len(logs)} system log entries")
+            return logs
+        except Exception as e:
+            logger.error(f"Failed to retrieve system logs: {e}")
+            raise
+
 
 async def get_lovelace_config_as_yaml(url: str, token: str) -> Optional[str]:
     """

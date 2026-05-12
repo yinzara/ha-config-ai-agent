@@ -105,6 +105,7 @@ Key Responsibilities:
 Available Tools:
 - search_config_files: Search for terms in configuration (use first)
 - propose_config_changes: Propose changes for user approval
+- get_system_logs: Retrieve system logs for debugging and troubleshooting
 
 Important Guidelines:
 - NEVER suggest changes directly - always use propose_config_changes
@@ -240,6 +241,45 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                                 "search_pattern": {
                                     "type": "string",
                                     "description": "Optional text to search for in file contents (case-insensitive). Only files containing this text will be returned. Omit to return all files."
+                                }
+                            },
+                            "required": []
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_system_logs",
+                        "description": "Retrieve Home Assistant system logs for debugging and troubleshooting. Returns the most recent matching log entries. All parameters are optional.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "severity": {
+                                    "type": "string",
+                                    "description": "Filter by log level: 'error', 'warning', 'info', 'debug', or 'critical'. Case-insensitive.",
+                                    "enum": ["error", "warning", "info", "debug", "critical"]
+                                },
+                                "component": {
+                                    "type": "string",
+                                    "description": "Filter by integration/component name (e.g., 'zwave_js', 'mqtt'). Partial match, case-insensitive."
+                                },
+                                "search_pattern": {
+                                    "type": "string",
+                                    "description": "Text to search for in log messages. Case-insensitive."
+                                },
+                                "start_time": {
+                                    "type": "string",
+                                    "description": "ISO datetime string. Only include logs after this time (e.g., '2024-01-15T10:00:00')."
+                                },
+                                "end_time": {
+                                    "type": "string",
+                                    "description": "ISO datetime string. Only include logs before this time."
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "description": "Maximum number of entries to return (default 50). Returns most recent first.",
+                                    "default": 50
                                 }
                             },
                             "required": []
@@ -446,6 +486,9 @@ Remember: You're helping manage a production Home Assistant system. Safety and c
                     if function_name == "search_config_files":
                         result = await self.tools.search_config_files(**function_args)
                         logger.info(f"[ITERATION {iteration}] Tool result: success={result.get('success')}, file_count={result.get('count')}")
+                    elif function_name == "get_system_logs":
+                        result = await self.tools.get_system_logs(**function_args)
+                        logger.info(f"[ITERATION {iteration}] Tool result: success={result.get('success')}, log_count={result.get('count')}, total_available={result.get('total_available')}")
                     elif function_name == "propose_config_changes":
                         if "changes" not in function_args or not isinstance(function_args["changes"], list):
                             error_msg = (
